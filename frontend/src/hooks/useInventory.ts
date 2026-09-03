@@ -79,9 +79,14 @@ export function useInventory() {
 
   const items = allItems
     .filter((item) => {
-      const q = searchQuery.toLowerCase()
-      if (q && !item.name.toLowerCase().includes(q) && !item.sku.toLowerCase().includes(q))
-        return false
+      const q = searchQuery.toLowerCase().trim()
+      if (q) {
+        const haystack = [item.name, item.sku, item.category, item.subCategory]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+        if (!haystack.includes(q)) return false
+      }
       if (categoryFilter && item.category !== categoryFilter) return false
       if (subCategoryFilter && item.subCategory !== subCategoryFilter) return false
       if (warehouseFilter) {

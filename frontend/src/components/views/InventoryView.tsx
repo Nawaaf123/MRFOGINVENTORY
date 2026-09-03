@@ -35,9 +35,48 @@ export function InventoryView({ inv }: Props) {
     quantity: '0',
   })
 
-  const { items, warehouses, loading, searchQuery, setSearchQuery, categoryFilter, setCategoryFilter, warehouseFilter, setWarehouseFilter, toggleSort, addItem, updateItem, deleteItem, categories } = inv
+  const {
+    items,
+    allItems,
+    warehouses,
+    loading,
+    searchQuery,
+    setSearchQuery,
+    categoryFilter,
+    setCategoryFilter,
+    subCategoryFilter,
+    setSubCategoryFilter,
+    warehouseFilter,
+    setWarehouseFilter,
+    toggleSort,
+    addItem,
+    updateItem,
+    deleteItem,
+  } = inv
 
-  const uniqueCategories = categories.map((c) => c.name)
+  const uniqueCategories = Array.from(
+    new Set(allItems.map((i) => i.category).filter((c): c is string => Boolean(c?.trim())))
+  ).sort((a, b) => a.localeCompare(b))
+
+  const uniqueSubCategories = Array.from(
+    new Set(
+      allItems
+        .filter((i) => !categoryFilter || i.category === categoryFilter)
+        .map((i) => i.subCategory)
+        .filter((c): c is string => Boolean(c?.trim()))
+    )
+  ).sort((a, b) => a.localeCompare(b))
+
+  const handleCategoryChange = (value: string) => {
+    const next = value === 'all' ? '' : value
+    setCategoryFilter(next)
+    if (next && subCategoryFilter) {
+      const stillValid = allItems.some(
+        (i) => i.category === next && i.subCategory === subCategoryFilter
+      )
+      if (!stillValid) setSubCategoryFilter('')
+    }
+  }
 
   const openCreate = () => {
     setEditing(null)
@@ -152,17 +191,17 @@ export function InventoryView({ inv }: Props) {
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
+        <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[180px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search by name or SKU..."
+              placeholder="Search name, SKU, category..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9"
             />
           </div>
-          <Select value={categoryFilter || 'all'} onValueChange={(v) => setCategoryFilter(v === 'all' ? '' : v)}>
+          <Select value={categoryFilter || 'all'} onValueChange={handleCategoryChange}>
             <SelectTrigger className="w-full sm:w-44">
               <Filter className="h-4 w-4 mr-2" />
               <SelectValue placeholder="Category" />
@@ -170,6 +209,20 @@ export function InventoryView({ inv }: Props) {
             <SelectContent>
               <SelectItem value="all">All Categories</SelectItem>
               {uniqueCategories.map((c) => (
+                <SelectItem key={c} value={c}>{c}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={subCategoryFilter || 'all'}
+            onValueChange={(v) => setSubCategoryFilter(v === 'all' ? '' : v)}
+          >
+            <SelectTrigger className="w-full sm:w-52">
+              <SelectValue placeholder="Subcategory" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Subcategories</SelectItem>
+              {uniqueSubCategories.map((c) => (
                 <SelectItem key={c} value={c}>{c}</SelectItem>
               ))}
             </SelectContent>
@@ -200,6 +253,7 @@ export function InventoryView({ inv }: Props) {
               </TableHead>
               <TableHead>SKU</TableHead>
               <TableHead>Category</TableHead>
+              <TableHead>Subcategory</TableHead>
               <TableHead>
                 <button onClick={() => toggleSort('quantity')} className="flex items-center gap-1 hover:text-foreground">
                   Stock <ArrowUpDown className="h-3 w-3" />
@@ -217,7 +271,7 @@ export function InventoryView({ inv }: Props) {
           <TableBody>
             {items.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                   No items found
                 </TableCell>
               </TableRow>
@@ -230,7 +284,10 @@ export function InventoryView({ inv }: Props) {
                   <TableCell className="font-medium">{item.name}</TableCell>
                   <TableCell className="text-muted-foreground font-mono text-sm">{item.sku}</TableCell>
                   <TableCell>
-                    <Badge variant="secondary">{item.category}</Badge>
+                    {item.category ? <Badge variant="secondary">{item.category}</Badge> : '—'}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {item.subCategory || '—'}
                   </TableCell>
                   <TableCell>
                     <span className={low ? 'text-destructive font-semibold' : ''}>{total}</span>
@@ -276,8 +333,11 @@ export function InventoryView({ inv }: Props) {
                   <div>
                     <p className="font-semibold">{item.name}</p>
                     <p className="text-xs text-muted-foreground font-mono">{item.sku}</p>
+                    {item.subCategory && (
+                      <p className="text-xs text-muted-foreground mt-0.5">{item.subCategory}</p>
+                    )}
                   </div>
-                  <Badge variant="secondary">{item.category}</Badge>
+                  {item.category ? <Badge variant="secondary">{item.category}</Badge> : null}
                 </div>
                 <div className="flex justify-between items-center text-sm">
                   <span className={low ? 'text-destructive font-bold' : 'font-medium'}>
@@ -323,14 +383,19 @@ export function InventoryView({ inv }: Props) {
                 <Label>Category</Label>
                 <Input value={form.category} onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))} className="mt-1" list="inv-categories" />
                 <datalist id="inv-categories">
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.name} />
+                  {uniqueCategories.map((c) => (
+                    <option key={c} value={c} />
                   ))}
                 </datalist>
               </div>
               <div>
                 <Label>Subcategory</Label>
-                <Input value={form.subCategory} onChange={(e) => setForm((p) => ({ ...p, subCategory: e.target.value }))} className="mt-1" />
+                <Input value={form.subCategory} onChange={(e) => setForm((p) => ({ ...p, subCategory: e.target.value }))} className="mt-1" list="inv-subcategories" />
+                <datalist id="inv-subcategories">
+                  {uniqueSubCategories.map((c) => (
+                    <option key={c} value={c} />
+                  ))}
+                </datalist>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
