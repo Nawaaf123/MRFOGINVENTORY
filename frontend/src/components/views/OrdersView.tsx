@@ -299,7 +299,7 @@ export function OrdersView({ inv }: Props) {
                   <Input type="number" min="0" step="0.01" value={line.unitPrice} className="mt-1" onChange={(e) => setLines((prev) => prev.map((l, i) => i === idx ? { ...l, unitPrice: e.target.value } : l))} />
                 </div>
                 <div className="col-span-1">
-                  <Button variant="ghost" size="sm" className="w-full" onClick={() => setLines((prev) => prev.filter((_, i) => i !== idx) || prev)}>
+                  <Button variant="ghost" size="sm" className="w-full" onClick={() => setLines((prev) => prev.length <= 1 ? prev : prev.filter((_, i) => i !== idx))}>
                     ×
                   </Button>
                 </div>

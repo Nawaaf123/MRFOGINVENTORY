@@ -6,7 +6,6 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { getTotalQuantity } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { Warehouse } from '@/types/inventory'
 

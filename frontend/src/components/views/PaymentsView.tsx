@@ -21,9 +21,6 @@ export function PaymentsView({ inv }: Props) {
 
   const completedOrders = orders.filter((o) => o.status !== 'cancelled')
 
-  const paidForOrder = (orderId: string) =>
-    payments.filter((p) => p.orderId === orderId).reduce((s, p) => s + p.amount, 0)
-
   const handleAddPayment = async (orderId: string) => {
     const amount = parseFloat(amounts[orderId] || '0')
     if (!amount || isNaN(amount)) {
