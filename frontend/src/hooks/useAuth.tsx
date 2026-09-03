@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { apiGet, apiPost } from '@/lib/api'
+import { mapUser } from '@/lib/mappers'
 
 interface User {
   id: string
@@ -27,8 +28,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false)
       return
     }
-    apiGet<User>('/api/auth/me')
-      .then(setUser)
+    apiGet<Record<string, unknown>>('/api/auth/me')
+      .then((raw) => setUser(mapUser(raw)))
       .catch(() => {
         localStorage.removeItem('token')
       })
@@ -36,12 +37,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const signIn = async (email: string, password: string) => {
-    const data = await apiPost<{ access_token: string; user: User }>('/api/auth/login', {
+    const data = await apiPost<{ accessToken: string; user?: Record<string, unknown> }>('/api/auth/login', {
       email,
       password,
     })
-    localStorage.setItem('token', data.access_token)
-    setUser(data.user)
+    localStorage.setItem('token', data.accessToken)
+    if (data.user) {
+      setUser(mapUser(data.user))
+    } else {
+      const me = await apiGet<Record<string, unknown>>('/api/auth/me')
+      setUser(mapUser(me))
+    }
   }
 
   const signOut = () => {

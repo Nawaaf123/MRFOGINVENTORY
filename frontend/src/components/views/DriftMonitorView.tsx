@@ -4,7 +4,6 @@ import type { useInventory } from '@/hooks/useInventory'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { getTotalQuantity } from '@/lib/utils'
 
 type Inv = ReturnType<typeof useInventory>
 interface Props { inv: Inv }

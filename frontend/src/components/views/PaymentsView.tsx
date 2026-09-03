@@ -19,10 +19,7 @@ export function PaymentsView({ inv }: Props) {
   const { orders, payments, wholesalers, addPayment, loading } = inv
   const [amounts, setAmounts] = useState<Record<string, string>>({})
 
-  const completedOrders = orders.filter((o) => o.status === 'completed')
-
-  const paidForOrder = (orderId: string) =>
-    payments.filter((p) => p.orderId === orderId).reduce((s, p) => s + p.amount, 0)
+  const completedOrders = orders.filter((o) => o.status !== 'cancelled')
 
   const handleAddPayment = async (orderId: string) => {
     const amount = parseFloat(amounts[orderId] || '0')
@@ -133,7 +130,7 @@ export function PaymentsView({ inv }: Props) {
           )
         })}
         {Object.keys(byShop).length === 0 && (
-          <div className="text-center py-12 text-muted-foreground">No completed orders</div>
+          <div className="text-center py-12 text-muted-foreground">No orders to invoice</div>
         )}
       </div>
     </div>

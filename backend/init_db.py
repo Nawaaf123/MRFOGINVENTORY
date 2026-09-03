@@ -40,9 +40,22 @@ async def seed_admin():
         print("✓ Admin user created: admin@stockkeeper.com / admin123")
 
 
+async def seed_warehouse():
+    from database import AsyncSessionLocal
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Warehouse))
+        if result.scalars().first():
+            print("✓ Warehouse already exists")
+            return
+        db.add(Warehouse(name="Main Warehouse", location="Primary", color="#14b8a6", sort_order=0))
+        await db.commit()
+        print("✓ Default warehouse created")
+
+
 async def main():
     await create_tables()
     await seed_admin()
+    await seed_warehouse()
     await engine.dispose()
     print("✓ Database initialization complete")
 

@@ -115,7 +115,7 @@ export function ReportsView({ inv }: Props) {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-                <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                <Tooltip formatter={(v) => formatCurrency(Number(v ?? 0))} />
                 <Legend />
                 <Line type="monotone" dataKey="sales" stroke="hsl(172,66%,40%)" strokeWidth={2} dot={false} />
               </LineChart>
@@ -131,7 +131,7 @@ export function ReportsView({ inv }: Props) {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
                 <YAxis dataKey="shop" type="category" tick={{ fontSize: 11 }} width={80} />
-                <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                <Tooltip formatter={(v) => formatCurrency(Number(v ?? 0))} />
                 <Bar dataKey="sales" fill="hsl(172,66%,40%)" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>

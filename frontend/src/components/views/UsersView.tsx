@@ -13,7 +13,8 @@ import { toast } from 'sonner'
 interface User {
   id: string
   email: string
-  name: string
+  name?: string
+  fullName?: string
   role: string
 }
 
@@ -27,7 +28,7 @@ export function UsersView() {
     setLoading(true)
     try {
       const data = await apiGet<User[]>('/api/users')
-      setUsers(data)
+      setUsers(data.map((u) => ({ ...u, name: u.fullName || u.name || u.email })))
     } catch {
       toast.error('Failed to load users')
     } finally {
@@ -39,7 +40,12 @@ export function UsersView() {
 
   const handleCreate = async () => {
     try {
-      await apiPost('/api/users', form)
+      await apiPost('/api/users', {
+        email: form.email,
+        password: form.password,
+        fullName: form.name,
+        role: form.role,
+      })
       toast.success('User created')
       setOpen(false)
       setForm({ email: '', name: '', password: '', role: 'user' })

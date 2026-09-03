@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Search, Plus, Filter, Download, ArrowUpDown } from 'lucide-react'
+import { Search, Plus, Filter, Download, ArrowUpDown, Pencil } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,10 +8,12 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
 import { getTotalQuantity, formatCurrency } from '@/lib/utils'
 import { downloadInventorySheet } from '@/lib/inventorySheet'
 import { toast } from 'sonner'
-import type { InventoryItem } from '@/types/inventory'
+import type { InventoryItem, Warehouse } from '@/types/inventory'
 
 type Inv = ReturnType<typeof useInventory>
 
@@ -20,11 +22,90 @@ interface Props {
 }
 
 export function InventoryView({ inv }: Props) {
-  const [showAddDialog, setShowAddDialog] = useState(false)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editing, setEditing] = useState<InventoryItem | null>(null)
+  const [form, setForm] = useState({
+    name: '',
+    sku: '',
+    category: '',
+    subCategory: '',
+    minStock: '0',
+    price: '0',
+    warehouseId: '',
+    quantity: '0',
+  })
 
-  const { items, warehouses, loading, searchQuery, setSearchQuery, categoryFilter, setCategoryFilter, warehouseFilter, setWarehouseFilter, toggleSort, sortField, sortDirection, deleteItem, categories } = inv
+  const { items, warehouses, loading, searchQuery, setSearchQuery, categoryFilter, setCategoryFilter, warehouseFilter, setWarehouseFilter, toggleSort, addItem, updateItem, deleteItem, categories } = inv
 
   const uniqueCategories = categories.map((c) => c.name)
+
+  const openCreate = () => {
+    setEditing(null)
+    setForm({
+      name: '',
+      sku: '',
+      category: '',
+      subCategory: '',
+      minStock: '0',
+      price: '0',
+      warehouseId: warehouses[0]?.id ?? '',
+      quantity: '0',
+    })
+    setDialogOpen(true)
+  }
+
+  const openEdit = (item: InventoryItem) => {
+    setEditing(item)
+    setForm({
+      name: item.name,
+      sku: item.sku,
+      category: item.category,
+      subCategory: item.subCategory,
+      minStock: String(item.minStock),
+      price: String(item.price),
+      warehouseId: warehouses[0]?.id ?? '',
+      quantity: '0',
+    })
+    setDialogOpen(true)
+  }
+
+  const handleSave = async () => {
+    if (!form.name.trim() || !form.sku.trim()) {
+      toast.error('Name and SKU are required')
+      return
+    }
+    try {
+      if (editing) {
+        await updateItem(editing.id, {
+          name: form.name.trim(),
+          sku: form.sku.trim(),
+          category: form.category.trim(),
+          subCategory: form.subCategory.trim(),
+          minStock: Number(form.minStock) || 0,
+          price: Number(form.price) || 0,
+        })
+        toast.success('Item updated')
+      } else {
+        const qty = Number(form.quantity) || 0
+        await addItem({
+          name: form.name.trim(),
+          sku: form.sku.trim(),
+          category: form.category.trim() || undefined,
+          subCategory: form.subCategory.trim() || undefined,
+          minStock: Number(form.minStock) || 0,
+          price: Number(form.price) || 0,
+          initialStock:
+            form.warehouseId && qty > 0
+              ? [{ warehouseId: form.warehouseId, quantity: qty }]
+              : undefined,
+        })
+        toast.success('Item added')
+      }
+      setDialogOpen(false)
+    } catch {
+      toast.error(editing ? 'Failed to update item' : 'Failed to add item')
+    }
+  }
 
   const handleDelete = async (item: InventoryItem) => {
     if (!confirm(`Delete "${item.name}"?`)) return
@@ -64,7 +145,7 @@ export function InventoryView({ inv }: Props) {
               <Download className="h-4 w-4 mr-1" />
               PDF
             </Button>
-            <Button size="sm" onClick={() => setShowAddDialog(true)}>
+            <Button size="sm" onClick={openCreate}>
               <Plus className="h-4 w-4 mr-1" />
               Add Item
             </Button>
@@ -165,7 +246,10 @@ export function InventoryView({ inv }: Props) {
                       ))}
                     </div>
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right space-x-1">
+                    <Button variant="ghost" size="sm" onClick={() => openEdit(item)}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
                     <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => handleDelete(item)}>
                       Delete
                     </Button>
@@ -208,7 +292,8 @@ export function InventoryView({ inv }: Props) {
                     </Badge>
                   ))}
                 </div>
-                <div className="mt-3 flex justify-end">
+                <div className="mt-3 flex justify-end gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => openEdit(item)}>Edit</Button>
                   <Button variant="ghost" size="sm" className="text-destructive" onClick={() => handleDelete(item)}>
                     Delete
                   </Button>
@@ -219,10 +304,73 @@ export function InventoryView({ inv }: Props) {
         })}
       </div>
 
-      {/* Suppress unused state warning */}
-      {showAddDialog && (
-        <div className="hidden">{sortField}{sortDirection}</div>
-      )}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editing ? 'Edit Item' : 'Add Item'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Name</Label>
+              <Input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} className="mt-1" />
+            </div>
+            <div>
+              <Label>SKU</Label>
+              <Input value={form.sku} onChange={(e) => setForm((p) => ({ ...p, sku: e.target.value }))} className="mt-1" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Category</Label>
+                <Input value={form.category} onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))} className="mt-1" list="inv-categories" />
+                <datalist id="inv-categories">
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.name} />
+                  ))}
+                </datalist>
+              </div>
+              <div>
+                <Label>Subcategory</Label>
+                <Input value={form.subCategory} onChange={(e) => setForm((p) => ({ ...p, subCategory: e.target.value }))} className="mt-1" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Price</Label>
+                <Input type="number" min="0" step="0.01" value={form.price} onChange={(e) => setForm((p) => ({ ...p, price: e.target.value }))} className="mt-1" />
+              </div>
+              <div>
+                <Label>Min stock</Label>
+                <Input type="number" min="0" value={form.minStock} onChange={(e) => setForm((p) => ({ ...p, minStock: e.target.value }))} className="mt-1" />
+              </div>
+            </div>
+            {!editing && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Opening warehouse</Label>
+                  <Select value={form.warehouseId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseId: v }))}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="Warehouse" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {warehouses.map((w: Warehouse) => (
+                        <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Opening qty</Label>
+                  <Input type="number" min="0" value={form.quantity} onChange={(e) => setForm((p) => ({ ...p, quantity: e.target.value }))} className="mt-1" />
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleSave}>{editing ? 'Save' : 'Add Item'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
