@@ -64,12 +64,14 @@ function OrderCard({ order, onCancel, onComplete, onDownload, onPreview }: {
 interface Props { inv: Inv }
 
 export function OrdersView({ inv }: Props) {
-  const { orders, allItems, warehouses, createOrder, completeOrder, deleteOrder, loading } = inv
+  const { orders, allItems, warehouses, wholesalers, createOrder, completeOrder, deleteOrder, loading } = inv
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState(false)
   const [shopName, setShopName] = useState('')
   const [shippingFee, setShippingFee] = useState('0')
   const [lines, setLines] = useState([{ itemId: '', warehouseId: '', quantity: '1', unitPrice: '0' }])
+
+  const sortedWholesalers = [...wholesalers].sort((a, b) => a.name.localeCompare(b.name))
 
   const filtered = orders.filter((o) =>
     o.shopName.toLowerCase().includes(search.toLowerCase())
@@ -107,7 +109,11 @@ export function OrdersView({ inv }: Props) {
         unitPrice: Number(l.unitPrice) || 0,
       }))
     if (!shopName.trim() || items.length === 0) {
-      toast.error('Shop name and at least one item are required')
+      toast.error('Select a wholesaler and at least one item')
+      return
+    }
+    if (!wholesalers.some((w) => w.name === shopName.trim())) {
+      toast.error('Choose a wholesaler from the list (add one on the Wholesalers page first)')
       return
     }
     try {
@@ -244,8 +250,25 @@ export function OrdersView({ inv }: Props) {
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Shop name</Label>
-                <Input value={shopName} onChange={(e) => setShopName(e.target.value)} className="mt-1" />
+                <Label>Wholesaler</Label>
+                <Select value={shopName} onValueChange={setShopName}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder={sortedWholesalers.length ? 'Select wholesaler' : 'No wholesalers yet'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sortedWholesalers.map((w) => (
+                      <SelectItem key={w.id} value={w.name}>
+                        {w.name}
+                        {w.contactPerson ? ` · ${w.contactPerson}` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {sortedWholesalers.length === 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Add wholesalers on the Wholesalers page first.
+                  </p>
+                )}
               </div>
               <div>
                 <Label>Shipping fee</Label>
