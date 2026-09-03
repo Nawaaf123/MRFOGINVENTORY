@@ -13,11 +13,6 @@ class LoginRequest(BaseModel):
     password: str
 
 
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-
-
 class RegisterRequest(BaseModel):
     email: str
     password: str
@@ -33,6 +28,12 @@ class UserOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: Optional[UserOut] = None
 
 
 # ── Warehouses ────────────────────────────────────────────────────────────────
@@ -137,6 +138,7 @@ class ItemUpdate(BaseModel):
 class StockEntry(BaseModel):
     warehouse_id: UUID
     quantity: int
+    warehouse_name: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -201,6 +203,7 @@ class TransactionOut(BaseModel):
     type: str
     created_at: datetime
     item_name: Optional[str] = None
+    item_sku: Optional[str] = None
     warehouse_name: Optional[str] = None
 
     model_config = {"from_attributes": True}
@@ -242,6 +245,7 @@ class OrderItemOut(BaseModel):
     unit_price: Decimal
     created_at: datetime
     item_name: Optional[str] = None
+    item_sku: Optional[str] = None
     warehouse_name: Optional[str] = None
 
     model_config = {"from_attributes": True}

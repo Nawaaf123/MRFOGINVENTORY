@@ -1,5 +1,14 @@
 import { useState, useEffect, useCallback } from 'react'
-import { apiGet, apiPost, apiPut, apiDelete, apiPatch } from '@/lib/api'
+import { apiGet, apiPost, apiPut, apiDelete } from '@/lib/api'
+import {
+  mapCategory,
+  mapItem,
+  mapOrder,
+  mapPayment,
+  mapTransaction,
+  mapWarehouse,
+  mapWholesaler,
+} from '@/lib/mappers'
 import type {
   InventoryItem,
   Warehouse,
@@ -42,21 +51,21 @@ export function useInventory() {
     try {
       const [itemsRes, warehousesRes, ordersRes, txRes, paymentsRes, wholesalersRes, catsRes] =
         await Promise.all([
-          apiGet<InventoryItem[]>('/api/inventory'),
-          apiGet<Warehouse[]>('/api/warehouses'),
-          apiGet<Order[]>('/api/orders'),
-          apiGet<InventoryTransaction[]>('/api/transactions'),
-          apiGet<Payment[]>('/api/payments'),
-          apiGet<Wholesaler[]>('/api/wholesalers'),
-          apiGet<Category[]>('/api/categories'),
+          apiGet<Record<string, unknown>[]>('/api/items'),
+          apiGet<Record<string, unknown>[]>('/api/warehouses'),
+          apiGet<Record<string, unknown>[]>('/api/orders'),
+          apiGet<Record<string, unknown>[]>('/api/transactions'),
+          apiGet<Record<string, unknown>[]>('/api/payments'),
+          apiGet<Record<string, unknown>[]>('/api/wholesalers'),
+          apiGet<Record<string, unknown>[]>('/api/categories'),
         ])
-      setAllItems(itemsRes)
-      setWarehouses(warehousesRes)
-      setOrders(ordersRes)
-      setTransactions(txRes)
-      setPayments(paymentsRes)
-      setWholesalers(wholesalersRes)
-      setCategories(catsRes)
+      setAllItems(itemsRes.map(mapItem))
+      setWarehouses(warehousesRes.map(mapWarehouse))
+      setOrders(ordersRes.map(mapOrder))
+      setTransactions(txRes.map(mapTransaction))
+      setPayments(paymentsRes.map(mapPayment))
+      setWholesalers(wholesalersRes.map(mapWholesaler))
+      setCategories(catsRes.map(mapCategory))
     } catch (err) {
       console.error('Failed to fetch data', err)
     } finally {
@@ -118,18 +127,33 @@ export function useInventory() {
   }
 
   // CRUD operations
-  const addItem = async (data: Omit<InventoryItem, 'id' | 'lastUpdated'>) => {
-    await apiPost('/api/inventory', data)
+  const addItem = async (data: {
+    name: string
+    sku: string
+    category?: string
+    subCategory?: string
+    minStock?: number
+    price?: number
+    initialStock?: { warehouseId: string; quantity: number }[]
+  }) => {
+    await apiPost('/api/items', data)
     await fetchAll()
   }
 
   const updateItem = async (id: string, data: Partial<InventoryItem>) => {
-    await apiPut(`/api/inventory/${id}`, data)
+    await apiPut(`/api/items/${id}`, {
+      name: data.name,
+      sku: data.sku,
+      category: data.category,
+      subCategory: data.subCategory,
+      minStock: data.minStock,
+      price: data.price,
+    })
     await fetchAll()
   }
 
   const deleteItem = async (id: string) => {
-    await apiDelete(`/api/inventory/${id}`)
+    await apiDelete(`/api/items/${id}`)
     await fetchAll()
   }
 
@@ -140,12 +164,12 @@ export function useInventory() {
     bolNumber: string
     bolDocumentUrl?: string
   }) => {
-    await apiPost('/api/transactions/receive', data)
+    await apiPost('/api/stock/receive', data)
     await fetchAll()
   }
 
   const updateStock = async (itemId: string, warehouseId: string, quantity: number) => {
-    await apiPatch(`/api/inventory/${itemId}/stock`, { warehouseId, quantity })
+    await apiPut('/api/stock/update', { itemId, warehouseId, quantity })
     await fetchAll()
   }
 
@@ -155,17 +179,26 @@ export function useInventory() {
     toWarehouseId: string
     quantity: number
   }) => {
-    await apiPost('/api/transactions/transfer', data)
+    await apiPost('/api/stock/transfer', data)
     await fetchAll()
   }
 
-  const createOrder = async (data: Omit<Order, 'id'>) => {
+  const createOrder = async (data: {
+    shopName: string
+    shippingFee?: number
+    items: { itemId: string; warehouseId: string; quantity: number; unitPrice: number }[]
+  }) => {
     await apiPost('/api/orders', data)
     await fetchAll()
   }
 
   const updateOrder = async (id: string, data: Partial<Order>) => {
     await apiPut(`/api/orders/${id}`, data)
+    await fetchAll()
+  }
+
+  const completeOrder = async (id: string) => {
+    await apiPost(`/api/orders/${id}/complete`)
     await fetchAll()
   }
 
@@ -190,12 +223,20 @@ export function useInventory() {
   }
 
   const addPayment = async (data: Omit<Payment, 'id'>) => {
-    await apiPost('/api/payments', data)
+    await apiPost('/api/payments', {
+      ...data,
+      paymentDate: data.paymentDate instanceof Date ? data.paymentDate.toISOString() : data.paymentDate,
+    })
     await fetchAll()
   }
 
   const deletePayment = async (id: string) => {
     await apiDelete(`/api/payments/${id}`)
+    await fetchAll()
+  }
+
+  const addWarehouse = async (data: { name: string; location?: string; color?: string }) => {
+    await apiPost('/api/warehouses', data)
     await fetchAll()
   }
 
@@ -205,20 +246,20 @@ export function useInventory() {
   }
 
   const reorderWarehouse = async (id: string, sortOrder: number) => {
-    await apiPatch(`/api/warehouses/${id}/order`, { sortOrder })
+    await apiPut('/api/warehouses/reorder', { items: [{ id, sortOrder }] })
     await fetchAll()
   }
 
   const updateReceiving = async (
-    transactionId: string,
-    data: { bolNumber?: string; quantity?: number }
+    bolNumber: string,
+    data: { newBolNumber?: string; quantity?: number; items?: { itemId: string; warehouseId: string; quantity: number }[] }
   ) => {
-    await apiPut(`/api/transactions/${transactionId}`, data)
+    await apiPut('/api/transactions/receiving', { bolNumber, ...data })
     await fetchAll()
   }
 
-  const deleteReceiving = async (transactionId: string) => {
-    await apiDelete(`/api/transactions/${transactionId}`)
+  const deleteReceiving = async (bolNumber: string) => {
+    await apiDelete(`/api/transactions/receiving/${encodeURIComponent(bolNumber)}`)
     await fetchAll()
   }
 
@@ -252,12 +293,14 @@ export function useInventory() {
     transferStock,
     createOrder,
     updateOrder,
+    completeOrder,
     deleteOrder,
     addWholesaler,
     updateWholesaler,
     deleteWholesaler,
     addPayment,
     deletePayment,
+    addWarehouse,
     updateWarehouse,
     reorderWarehouse,
     updateReceiving,

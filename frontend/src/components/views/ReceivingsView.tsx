@@ -1,10 +1,14 @@
 import { useState } from 'react'
 import { format } from 'date-fns'
-import { ExternalLink, Trash2 } from 'lucide-react'
+import { ExternalLink, Trash2, Plus } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { openBolDocument } from '@/lib/bolDocs'
 import { toast } from 'sonner'
 import type { InventoryTransaction } from '@/types/inventory'
@@ -13,8 +17,10 @@ type Inv = ReturnType<typeof useInventory>
 interface Props { inv: Inv }
 
 export function ReceivingsView({ inv }: Props) {
-  const { transactions, deleteReceiving, loading } = inv
+  const { transactions, allItems, warehouses, receiveStock, deleteReceiving, loading } = inv
   const [_deleting, setDeleting] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
+  const [form, setForm] = useState({ itemId: '', warehouseId: '', quantity: '1', bolNumber: '' })
 
   const receivings = transactions.filter((t) =>
     ['receive', 'opening_balance'].includes(t.type)
@@ -28,10 +34,10 @@ export function ReceivingsView({ inv }: Props) {
   }, {})
 
   const handleDelete = async (t: InventoryTransaction) => {
-    if (!confirm('Delete this receiving entry?')) return
+    if (!confirm('Delete all receiving entries for this BOL?')) return
     setDeleting(t.id)
     try {
-      await deleteReceiving(t.id)
+      await deleteReceiving(t.bolNumber)
       toast.success('Receiving deleted')
     } catch {
       toast.error('Failed to delete')
@@ -40,13 +46,43 @@ export function ReceivingsView({ inv }: Props) {
     }
   }
 
+  const handleReceive = async () => {
+    if (!form.itemId || !form.warehouseId || !form.bolNumber.trim() || Number(form.quantity) <= 0) {
+      toast.error('Item, warehouse, BOL, and quantity are required')
+      return
+    }
+    try {
+      await receiveStock({
+        itemId: form.itemId,
+        warehouseId: form.warehouseId,
+        quantity: Number(form.quantity),
+        bolNumber: form.bolNumber.trim(),
+      })
+      toast.success('Stock received')
+      setOpen(false)
+      setForm({ itemId: '', warehouseId: warehouses[0]?.id ?? '', quantity: '1', bolNumber: '' })
+    } catch {
+      toast.error('Failed to receive stock')
+    }
+  }
+
   if (loading) return <div className="p-6 text-muted-foreground">Loading...</div>
 
   return (
     <div className="flex flex-col h-full">
       <div className="p-6 border-b bg-background sticky top-0 z-10">
-        <h1 className="text-2xl font-bold">Receivings</h1>
-        <p className="text-muted-foreground text-sm mt-1">Stock received, grouped by BOL</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">Receivings</h1>
+            <p className="text-muted-foreground text-sm mt-1">Stock received, grouped by BOL</p>
+          </div>
+          <Button size="sm" onClick={() => {
+            setForm((p) => ({ ...p, warehouseId: p.warehouseId || warehouses[0]?.id || '' }))
+            setOpen(true)
+          }}>
+            <Plus className="h-4 w-4 mr-1" />Receive Stock
+          </Button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto p-6 space-y-6">
@@ -91,6 +127,50 @@ export function ReceivingsView({ inv }: Props) {
           )
         })}
       </div>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Receive Stock</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Item</Label>
+              <Select value={form.itemId} onValueChange={(v) => setForm((p) => ({ ...p, itemId: v }))}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select item" /></SelectTrigger>
+                <SelectContent>
+                  {allItems.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Warehouse</Label>
+              <Select value={form.warehouseId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseId: v }))}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Warehouse" /></SelectTrigger>
+                <SelectContent>
+                  {warehouses.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Quantity</Label>
+              <Input type="number" min="1" value={form.quantity} className="mt-1" onChange={(e) => setForm((p) => ({ ...p, quantity: e.target.value }))} />
+            </div>
+            <div>
+              <Label>BOL number</Label>
+              <Input value={form.bolNumber} className="mt-1" onChange={(e) => setForm((p) => ({ ...p, bolNumber: e.target.value }))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button onClick={handleReceive}>Receive</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

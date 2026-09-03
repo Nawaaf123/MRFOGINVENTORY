@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { format } from 'date-fns'
-import { Search, Plus, FileText, Eye } from 'lucide-react'
+import { Search, Plus, FileText, Eye, Check } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,6 +8,9 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { formatCurrency } from '@/lib/utils'
 import { downloadInvoice } from '@/lib/invoice'
 import { downloadPickSheet, previewPickSheet } from '@/lib/pickSheet'
@@ -22,9 +25,10 @@ const statusColors: Record<string, string> = {
   cancelled: 'bg-red-100 text-red-800',
 }
 
-function OrderCard({ order, onCancel, onDownload, onPreview }: {
+function OrderCard({ order, onCancel, onComplete, onDownload, onPreview }: {
   order: Order
   onCancel: (o: Order) => void
+  onComplete: (o: Order) => void
   onDownload: (o: Order) => void
   onPreview: (o: Order) => void
 }) {
@@ -46,7 +50,10 @@ function OrderCard({ order, onCancel, onDownload, onPreview }: {
           <Button variant="ghost" size="sm" onClick={() => onPreview(order)}><Eye className="h-3 w-3" /></Button>
           <Button variant="ghost" size="sm" onClick={() => onDownload(order)}><FileText className="h-3 w-3" /></Button>
           {order.status === 'pending' && (
-            <Button variant="ghost" size="sm" className="text-destructive" onClick={() => onCancel(order)}>Cancel</Button>
+            <>
+              <Button variant="ghost" size="sm" onClick={() => onComplete(order)}><Check className="h-3 w-3" /></Button>
+              <Button variant="ghost" size="sm" className="text-destructive" onClick={() => onCancel(order)}>Cancel</Button>
+            </>
           )}
         </div>
       </CardContent>
@@ -57,8 +64,12 @@ function OrderCard({ order, onCancel, onDownload, onPreview }: {
 interface Props { inv: Inv }
 
 export function OrdersView({ inv }: Props) {
-  const { orders, allItems, deleteOrder, loading } = inv
+  const { orders, allItems, warehouses, createOrder, completeOrder, deleteOrder, loading } = inv
   const [search, setSearch] = useState('')
+  const [open, setOpen] = useState(false)
+  const [shopName, setShopName] = useState('')
+  const [shippingFee, setShippingFee] = useState('0')
+  const [lines, setLines] = useState([{ itemId: '', warehouseId: '', quantity: '1', unitPrice: '0' }])
 
   const filtered = orders.filter((o) =>
     o.shopName.toLowerCase().includes(search.toLowerCase())
@@ -76,6 +87,44 @@ export function OrdersView({ inv }: Props) {
     acc[o.shopName].push(o)
     return acc
   }, {})
+
+  const handleComplete = async (order: Order) => {
+    try {
+      await completeOrder(order.id)
+      toast.success('Order completed')
+    } catch {
+      toast.error('Failed to complete order')
+    }
+  }
+
+  const handleCreate = async () => {
+    const items = lines
+      .filter((l) => l.itemId && l.warehouseId && Number(l.quantity) > 0)
+      .map((l) => ({
+        itemId: l.itemId,
+        warehouseId: l.warehouseId,
+        quantity: Number(l.quantity),
+        unitPrice: Number(l.unitPrice) || 0,
+      }))
+    if (!shopName.trim() || items.length === 0) {
+      toast.error('Shop name and at least one item are required')
+      return
+    }
+    try {
+      await createOrder({
+        shopName: shopName.trim(),
+        shippingFee: Number(shippingFee) || 0,
+        items,
+      })
+      toast.success('Order created')
+      setOpen(false)
+      setShopName('')
+      setShippingFee('0')
+      setLines([{ itemId: '', warehouseId: warehouses[0]?.id ?? '', quantity: '1', unitPrice: '0' }])
+    } catch {
+      toast.error('Failed to create order')
+    }
+  }
 
   const handleCancel = async (order: Order) => {
     if (!confirm('Cancel this order?')) return
@@ -109,7 +158,10 @@ export function OrdersView({ inv }: Props) {
       <div className="p-6 border-b bg-background sticky top-0 z-10">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold">Orders</h1>
-          <Button size="sm"><Plus className="h-4 w-4 mr-1" />New Order</Button>
+          <Button size="sm" onClick={() => {
+            setLines([{ itemId: '', warehouseId: warehouses[0]?.id ?? '', quantity: '1', unitPrice: '0' }])
+            setOpen(true)
+          }}><Plus className="h-4 w-4 mr-1" />New Order</Button>
         </div>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -131,7 +183,7 @@ export function OrdersView({ inv }: Props) {
               </h3>
               <div className="space-y-2">
                 {grouped[date].map((order) => (
-                  <OrderCard key={order.id} order={order} onCancel={handleCancel} onDownload={handleDownload} onPreview={handlePreview} />
+                  <OrderCard key={order.id} order={order} onCancel={handleCancel} onComplete={handleComplete} onDownload={handleDownload} onPreview={handlePreview} />
                 ))}
               </div>
             </div>
@@ -183,6 +235,90 @@ export function OrdersView({ inv }: Props) {
           })}
         </TabsContent>
       </Tabs>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>New Order</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Shop name</Label>
+                <Input value={shopName} onChange={(e) => setShopName(e.target.value)} className="mt-1" />
+              </div>
+              <div>
+                <Label>Shipping fee</Label>
+                <Input type="number" min="0" step="0.01" value={shippingFee} onChange={(e) => setShippingFee(e.target.value)} className="mt-1" />
+              </div>
+            </div>
+            {lines.map((line, idx) => (
+              <div key={idx} className="grid grid-cols-12 gap-2 items-end">
+                <div className="col-span-4">
+                  <Label>Item</Label>
+                  <Select
+                    value={line.itemId}
+                    onValueChange={(v) => {
+                      const item = allItems.find((i) => i.id === v)
+                      setLines((prev) => prev.map((l, i) => i === idx ? {
+                        ...l,
+                        itemId: v,
+                        unitPrice: String(item?.price ?? 0),
+                        warehouseId: l.warehouseId || warehouses[0]?.id || '',
+                      } : l))
+                    }}
+                  >
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="Select item" /></SelectTrigger>
+                    <SelectContent>
+                      {allItems.map((item) => (
+                        <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-3">
+                  <Label>Warehouse</Label>
+                  <Select
+                    value={line.warehouseId}
+                    onValueChange={(v) => setLines((prev) => prev.map((l, i) => i === idx ? { ...l, warehouseId: v } : l))}
+                  >
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="Warehouse" /></SelectTrigger>
+                    <SelectContent>
+                      {warehouses.map((w) => (
+                        <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-2">
+                  <Label>Qty</Label>
+                  <Input type="number" min="1" value={line.quantity} className="mt-1" onChange={(e) => setLines((prev) => prev.map((l, i) => i === idx ? { ...l, quantity: e.target.value } : l))} />
+                </div>
+                <div className="col-span-2">
+                  <Label>Price</Label>
+                  <Input type="number" min="0" step="0.01" value={line.unitPrice} className="mt-1" onChange={(e) => setLines((prev) => prev.map((l, i) => i === idx ? { ...l, unitPrice: e.target.value } : l))} />
+                </div>
+                <div className="col-span-1">
+                  <Button variant="ghost" size="sm" className="w-full" onClick={() => setLines((prev) => prev.filter((_, i) => i !== idx) || prev)}>
+                    ×
+                  </Button>
+                </div>
+              </div>
+            ))}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setLines((prev) => [...prev, { itemId: '', warehouseId: warehouses[0]?.id ?? '', quantity: '1', unitPrice: '0' }])}
+            >
+              Add line
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button onClick={handleCreate}>Create Order</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

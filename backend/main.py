@@ -1,10 +1,22 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from routers import auth, warehouses, categories, items, stock, transactions, orders, wholesalers, payments, audit, users
 
-app = FastAPI(title="StockKeeper API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    from init_db import create_tables, seed_admin, seed_warehouse
+    await create_tables()
+    await seed_admin()
+    await seed_warehouse()
+    yield
+
+
+app = FastAPI(title="StockKeeper API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

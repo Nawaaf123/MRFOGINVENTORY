@@ -9,7 +9,7 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from database import get_db
 from models import Order, OrderItem, InventoryTransaction
-from schemas import OrderCreate, OrderUpdate, OrderOut, OrderItemOut
+from schemas import OrderCreate, OrderUpdate, OrderOut, CancelRequest
 from auth import get_current_user
 from routers.stock import _apply_delta
 
@@ -27,6 +27,7 @@ def _enrich_order(order: Order) -> dict:
             "unit_price": oi.unit_price,
             "created_at": oi.created_at,
             "item_name": oi.item.name if oi.item else None,
+            "item_sku": oi.item.sku if oi.item else None,
             "warehouse_name": oi.warehouse.name if oi.warehouse else None,
         })
     return {
@@ -141,8 +142,35 @@ async def update_order(order_id: UUID, body: OrderUpdate, db: AsyncSession = Dep
     return _enrich_order(result.scalar_one())
 
 
-@router.delete("/{order_id}")
-async def cancel_order(order_id: UUID, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+@router.post("/{order_id}/complete", response_model=OrderOut)
+async def complete_order(order_id: UUID, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    result = await db.execute(
+        select(Order)
+        .options(
+            selectinload(Order.items).joinedload(OrderItem.item),
+            selectinload(Order.items).joinedload(OrderItem.warehouse),
+        )
+        .where(Order.id == order_id)
+    )
+    order = result.scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.status == "cancelled":
+        raise HTTPException(status_code=400, detail="Cannot complete a cancelled order")
+    order.status = "completed"
+    await db.commit()
+    result = await db.execute(
+        select(Order)
+        .options(
+            selectinload(Order.items).joinedload(OrderItem.item),
+            selectinload(Order.items).joinedload(OrderItem.warehouse),
+        )
+        .where(Order.id == order_id)
+    )
+    return _enrich_order(result.scalar_one())
+
+
+async def _cancel(db: AsyncSession, order_id: UUID, reason: str | None = None):
     result = await db.execute(
         select(Order)
         .options(selectinload(Order.items))
@@ -156,6 +184,7 @@ async def cancel_order(order_id: UUID, db: AsyncSession = Depends(get_db), _=Dep
 
     order.status = "cancelled"
     order.cancelled_at = datetime.now(timezone.utc)
+    order.cancelled_reason = reason
 
     for oi in order.items:
         await _apply_delta(db, oi.item_id, oi.warehouse_id, oi.quantity)
@@ -169,3 +198,13 @@ async def cancel_order(order_id: UUID, db: AsyncSession = Depends(get_db), _=Dep
 
     await db.commit()
     return {"ok": True}
+
+
+@router.post("/{order_id}/cancel")
+async def cancel_order_post(order_id: UUID, body: CancelRequest, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    return await _cancel(db, order_id, body.reason)
+
+
+@router.delete("/{order_id}")
+async def cancel_order(order_id: UUID, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    return await _cancel(db, order_id)

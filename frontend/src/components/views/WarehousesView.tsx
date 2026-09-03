@@ -14,7 +14,7 @@ type Inv = ReturnType<typeof useInventory>
 interface Props { inv: Inv }
 
 export function WarehousesView({ inv }: Props) {
-  const { warehouses, allItems, updateWarehouse, loading } = inv
+  const { warehouses, allItems, addWarehouse, updateWarehouse, loading } = inv
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Warehouse | null>(null)
   const [form, setForm] = useState({ name: '', location: '', color: '#14b8a6' })
@@ -34,13 +34,21 @@ export function WarehousesView({ inv }: Props) {
   }
 
   const handleSave = async () => {
-    if (!editing) return
+    if (!form.name.trim()) {
+      toast.error('Name is required')
+      return
+    }
     try {
-      await updateWarehouse(editing.id, form)
-      toast.success('Warehouse updated')
+      if (editing) {
+        await updateWarehouse(editing.id, form)
+        toast.success('Warehouse updated')
+      } else {
+        await addWarehouse(form)
+        toast.success('Warehouse added')
+      }
       setOpen(false)
     } catch {
-      toast.error('Failed to update')
+      toast.error('Failed to save warehouse')
     }
   }
 
@@ -49,8 +57,19 @@ export function WarehousesView({ inv }: Props) {
   return (
     <div className="flex flex-col h-full">
       <div className="p-6 border-b bg-background sticky top-0 z-10">
-        <h1 className="text-2xl font-bold">Warehouses</h1>
-        <p className="text-muted-foreground text-sm mt-1">Manage warehouse locations</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">Warehouses</h1>
+            <p className="text-muted-foreground text-sm mt-1">Manage warehouse locations</p>
+          </div>
+          <Button size="sm" onClick={() => {
+            setEditing(null)
+            setForm({ name: '', location: '', color: '#14b8a6' })
+            setOpen(true)
+          }}>
+            Add
+          </Button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto p-6 space-y-3">
@@ -88,7 +107,7 @@ export function WarehousesView({ inv }: Props) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit Warehouse</DialogTitle>
+            <DialogTitle>{editing ? 'Edit Warehouse' : 'Add Warehouse'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>

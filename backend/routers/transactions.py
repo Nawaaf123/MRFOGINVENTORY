@@ -24,6 +24,7 @@ def _enrich(tx: InventoryTransaction) -> dict:
         "type": tx.type,
         "created_at": tx.created_at,
         "item_name": tx.item.name if tx.item else None,
+        "item_sku": tx.item.sku if tx.item else None,
         "warehouse_name": tx.warehouse.name if tx.warehouse else None,
     }
     return d
