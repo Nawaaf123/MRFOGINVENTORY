@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Search, Plus, Filter, Download, ArrowUpDown, Pencil, Trash2 } from 'lucide-react'
+import { Search, Plus, Filter, Download, ArrowUpDown, Pencil, Trash2, SlidersHorizontal } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import { ProductPicker, type PickedProductLine } from '@/components/ProductPicker'
 import { getTotalQuantity } from '@/lib/utils'
 import { downloadInventorySheet } from '@/lib/inventorySheet'
 import { toast } from 'sonner'
@@ -22,6 +23,10 @@ interface Props {
 
 export function InventoryView({ inv }: Props) {
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [adjustOpen, setAdjustOpen] = useState(false)
+  const [adjustWarehouseId, setAdjustWarehouseId] = useState('')
+  const [adjustLines, setAdjustLines] = useState<PickedProductLine[]>([])
+  const [adjustSaving, setAdjustSaving] = useState(false)
   const [editing, setEditing] = useState<InventoryItem | null>(null)
   const [form, setForm] = useState({
     name: '',
@@ -51,6 +56,8 @@ export function InventoryView({ inv }: Props) {
     addItem,
     updateItem,
     deleteItem,
+    updateStock,
+    refresh,
   } = inv
 
   const sortedWarehouses = useMemo(
@@ -176,6 +183,52 @@ export function InventoryView({ inv }: Props) {
     toast.success('Inventory PDF downloaded')
   }
 
+  const openAdjust = () => {
+    setAdjustWarehouseId(sortedWarehouses[0]?.id ?? '')
+    setAdjustLines([])
+    setAdjustOpen(true)
+  }
+
+  const getAdjustAvailable = (itemId: string) => {
+    if (!adjustWarehouseId) return undefined
+    const item = allItems.find((i) => i.id === itemId)
+    return item?.stock.find((s) => s.warehouseId === adjustWarehouseId)?.quantity ?? 0
+  }
+
+  const handleAdjust = async () => {
+    if (!adjustWarehouseId) {
+      toast.error('Select a warehouse')
+      return
+    }
+    const changes = adjustLines
+      .map((line) => {
+        const next = Number(line.quantity)
+        const current = getAdjustAvailable(line.itemId) ?? 0
+        return { line, next, current, delta: next - current }
+      })
+      .filter((c) => Number.isFinite(c.next) && c.next >= 0 && c.delta !== 0)
+
+    if (changes.length === 0) {
+      toast.error('Change at least one product quantity')
+      return
+    }
+
+    setAdjustSaving(true)
+    try {
+      for (const c of changes) {
+        await updateStock(c.line.itemId, adjustWarehouseId, c.next, { refresh: false })
+      }
+      await refresh()
+      toast.success(`Adjusted ${changes.length} product${changes.length > 1 ? 's' : ''}`)
+      setAdjustOpen(false)
+      setAdjustLines([])
+    } catch {
+      toast.error('Failed to adjust stock')
+    } finally {
+      setAdjustSaving(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="p-6 space-y-4">
@@ -194,10 +247,14 @@ export function InventoryView({ inv }: Props) {
             <h1 className="text-2xl font-bold">Inventory</h1>
             <p className="text-muted-foreground text-sm">{items.length} items</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap justify-end">
             <Button variant="outline" size="sm" onClick={handleDownload}>
               <Download className="h-4 w-4 mr-1" />
               PDF
+            </Button>
+            <Button variant="outline" size="sm" onClick={openAdjust}>
+              <SlidersHorizontal className="h-4 w-4 mr-1" />
+              Adjust Stock
             </Button>
             <Button size="sm" onClick={openCreate}>
               <Plus className="h-4 w-4 mr-1" />
@@ -461,6 +518,50 @@ export function InventoryView({ inv }: Props) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleSave}>{editing ? 'Save' : 'Add Item'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={adjustOpen} onOpenChange={setAdjustOpen}>
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Adjust Stock</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 overflow-y-auto pr-1 flex-1">
+            <p className="text-sm text-muted-foreground">
+              Set the new on-hand quantity for each product. Changes write a manual adjust in Stock Summary.
+            </p>
+            <div>
+              <Label>Warehouse</Label>
+              <Select value={adjustWarehouseId} onValueChange={(v) => {
+                setAdjustWarehouseId(v)
+                setAdjustLines([])
+              }}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="Warehouse" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sortedWarehouses.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <ProductPicker
+              items={allItems}
+              lines={adjustLines}
+              onChange={setAdjustLines}
+              getAvailableQty={getAdjustAvailable}
+              quantityLabel="New qty"
+              quantityMin={0}
+              seedQuantityFromAvailable
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAdjustOpen(false)}>Cancel</Button>
+            <Button onClick={handleAdjust} disabled={adjustSaving || adjustLines.length === 0}>
+              {adjustSaving ? 'Saving...' : 'Save Adjustments'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -24,6 +24,10 @@ interface ProductPickerProps {
   getAvailableQty?: (itemId: string) => number | undefined
   showUnitPrice?: boolean
   listHeightClassName?: string
+  quantityLabel?: string
+  quantityMin?: number
+  /** When adding, seed quantity from getAvailableQty (for set-to adjustments) */
+  seedQuantityFromAvailable?: boolean
 }
 
 function compareSku(a: string, b: string) {
@@ -37,6 +41,9 @@ export function ProductPicker({
   getAvailableQty,
   showUnitPrice = false,
   listHeightClassName = 'h-44',
+  quantityLabel = 'Quantity',
+  quantityMin = 1,
+  seedQuantityFromAvailable = false,
 }: ProductPickerProps) {
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('')
@@ -92,22 +99,27 @@ export function ProductPicker({
   const addItem = (item: InventoryItem) => {
     const existing = lines.find((l) => l.itemId === item.id)
     if (existing) {
+      if (seedQuantityFromAvailable) return
       onChange(
         lines.map((l) =>
           l.itemId === item.id
-            ? { ...l, quantity: String(Math.max(1, Number(l.quantity || 0) + 1)) }
+            ? { ...l, quantity: String(Math.max(quantityMin, Number(l.quantity || 0) + 1)) }
             : l
         )
       )
       return
     }
+    const seeded =
+      seedQuantityFromAvailable && getAvailableQty
+        ? String(Math.max(0, getAvailableQty(item.id) ?? 0))
+        : String(Math.max(quantityMin, 1))
     onChange([
       ...lines,
       {
         itemId: item.id,
         itemName: item.name,
         itemSku: item.sku,
-        quantity: '1',
+        quantity: seeded,
         ...(showUnitPrice ? { unitPrice: String(item.price ?? 0) } : {}),
       },
     ])
@@ -197,7 +209,7 @@ export function ProductPicker({
         </div>
       </ScrollArea>
       <p className="text-xs text-muted-foreground">
-        Click products to add them (sorted by SKU). Then set quantities below.
+        Click products to add them (sorted by SKU). Then set {quantityLabel.toLowerCase()} below.
       </p>
 
       {lines.length > 0 && (
@@ -211,7 +223,7 @@ export function ProductPicker({
                   <p className="text-sm font-medium truncate">{line.itemName}</p>
                   <p className="text-xs text-muted-foreground font-mono">
                     {line.itemSku}
-                    {typeof available === 'number' ? ` · avail ${available}` : ''}
+                    {typeof available === 'number' ? ` · current ${available}` : ''}
                   </p>
                 </div>
                 {showUnitPrice && (
@@ -227,11 +239,12 @@ export function ProductPicker({
                 )}
                 <Input
                   type="number"
-                  min="1"
+                  min={quantityMin}
                   value={line.quantity}
                   onChange={(e) => updateLine(line.itemId, { quantity: e.target.value })}
                   className="w-24 h-8"
-                  title="Quantity"
+                  title={quantityLabel}
+                  placeholder={quantityLabel}
                 />
                 <Button
                   type="button"

@@ -176,9 +176,14 @@ export function useInventory() {
     if (options?.refresh !== false) await fetchAll()
   }
 
-  const updateStock = async (itemId: string, warehouseId: string, quantity: number) => {
+  const updateStock = async (
+    itemId: string,
+    warehouseId: string,
+    quantity: number,
+    options?: { refresh?: boolean }
+  ) => {
     await apiPut('/api/stock/update', { itemId, warehouseId, quantity })
-    await fetchAll()
+    if (options?.refresh !== false) await fetchAll()
   }
 
   const transferStock = async (
