@@ -89,6 +89,7 @@ export function StockSummaryView({ inv }: Props) {
   const [items, setItems] = useState<SummaryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [ledgerLoading, setLedgerLoading] = useState(false)
 
   const sortedWarehouses = useMemo(
     () => [...warehouses].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
@@ -102,13 +103,14 @@ export function StockSummaryView({ inv }: Props) {
 
   const loadSummary = useCallback(async () => {
     setLoading(true)
+    setExpanded(null)
     try {
       const params = new URLSearchParams()
+      params.set('include_ledger', 'false')
       if (warehouseId !== 'all') params.set('warehouse_id', warehouseId)
       if (debouncedSearch) params.set('q', debouncedSearch)
-      const qs = params.toString()
-      const data = await apiGet<SummaryResponse>(`/api/stock/summary${qs ? `?${qs}` : ''}`)
-      setItems(data.items ?? [])
+      const data = await apiGet<SummaryResponse>(`/api/stock/summary?${params.toString()}`)
+      setItems((data.items ?? []).map((i) => ({ ...i, ledger: i.ledger ?? [] })))
     } catch (err) {
       console.error(err)
       toast.error('Failed to load stock summary')
@@ -121,6 +123,36 @@ export function StockSummaryView({ inv }: Props) {
   useEffect(() => {
     void loadSummary()
   }, [loadSummary])
+
+  const loadLedger = useCallback(async (itemId: string) => {
+    setLedgerLoading(true)
+    try {
+      const params = new URLSearchParams()
+      params.set('item_id', itemId)
+      if (warehouseId !== 'all') params.set('warehouse_id', warehouseId)
+      const data = await apiGet<SummaryResponse>(`/api/stock/summary?${params.toString()}`)
+      const detail = data.items?.[0]
+      if (detail) {
+        setItems((prev) =>
+          prev.map((i) =>
+            i.itemId === itemId
+              ? {
+                  ...i,
+                  ledger: detail.ledger ?? [],
+                  warehouseBreakdown: detail.warehouseBreakdown ?? i.warehouseBreakdown,
+                  impliedOpening: detail.impliedOpening,
+                }
+              : i
+          )
+        )
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to load ledger')
+    } finally {
+      setLedgerLoading(false)
+    }
+  }, [warehouseId])
 
   const totals = useMemo(
     () =>
@@ -136,7 +168,16 @@ export function StockSummaryView({ inv }: Props) {
     [items]
   )
 
-  const toggle = (id: string) => setExpanded((prev) => (prev === id ? null : id))
+  const toggle = (id: string) => {
+    setExpanded((prev) => {
+      const next = prev === id ? null : id
+      if (next) {
+        const row = items.find((i) => i.itemId === next)
+        if (!row?.ledger?.length) void loadLedger(next)
+      }
+      return next
+    })
+  }
 
   if (invLoading) return <div className="p-6 text-muted-foreground">Loading...</div>
 
@@ -296,7 +337,9 @@ export function StockSummaryView({ inv }: Props) {
                                       </span>
                                     )}
                                   </p>
-                                  {item.ledger.length === 0 ? (
+                                  {ledgerLoading && expanded === item.itemId && !(item.ledger?.length) ? (
+                                    <p className="text-sm text-muted-foreground">Loading ledger...</p>
+                                  ) : (item.ledger?.length ?? 0) === 0 ? (
                                     <p className="text-sm text-muted-foreground">No movements recorded</p>
                                   ) : (
                                     <div className="rounded-md border overflow-hidden">

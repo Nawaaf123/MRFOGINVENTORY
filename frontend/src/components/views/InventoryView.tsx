@@ -56,8 +56,7 @@ export function InventoryView({ inv }: Props) {
     addItem,
     updateItem,
     deleteItem,
-    updateStock,
-    refresh,
+    adjustStockBatch,
   } = inv
 
   const sortedWarehouses = useMemo(
@@ -215,15 +214,18 @@ export function InventoryView({ inv }: Props) {
 
     setAdjustSaving(true)
     try {
-      for (const c of changes) {
-        await updateStock(c.line.itemId, adjustWarehouseId, c.next, { refresh: false })
-      }
-      await refresh()
+      await adjustStockBatch({
+        warehouseId: adjustWarehouseId,
+        items: changes.map((c) => ({
+          itemId: c.line.itemId,
+          quantity: c.next,
+        })),
+      })
       toast.success(`Adjusted ${changes.length} product${changes.length > 1 ? 's' : ''}`)
       setAdjustOpen(false)
       setAdjustLines([])
-    } catch {
-      toast.error('Failed to adjust stock')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to adjust stock')
     } finally {
       setAdjustSaving(false)
     }

@@ -181,6 +181,39 @@ class StockTransferRequest(BaseModel):
     quantity: int
 
 
+class StockReceiveLine(BaseModel):
+    item_id: UUID
+    quantity: int
+
+
+class StockReceiveBatchRequest(BaseModel):
+    warehouse_id: UUID
+    bol_number: str
+    bol_document_url: Optional[str] = None
+    items: List[StockReceiveLine]
+
+
+class StockTransferLine(BaseModel):
+    item_id: UUID
+    quantity: int
+
+
+class StockTransferBatchRequest(BaseModel):
+    from_warehouse_id: UUID
+    to_warehouse_id: UUID
+    items: List[StockTransferLine]
+
+
+class StockAdjustLine(BaseModel):
+    item_id: UUID
+    quantity: int
+
+
+class StockAdjustBatchRequest(BaseModel):
+    warehouse_id: UUID
+    items: List[StockAdjustLine]
+
+
 class StockDelta(BaseModel):
     item_id: UUID
     warehouse_id: UUID

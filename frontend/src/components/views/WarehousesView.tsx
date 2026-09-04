@@ -15,7 +15,7 @@ type Inv = ReturnType<typeof useInventory>
 interface Props { inv: Inv }
 
 export function WarehousesView({ inv }: Props) {
-  const { warehouses, allItems, updateWarehouse, transferStock, loading, refresh } = inv
+  const { warehouses, allItems, updateWarehouse, transferStockBatch, loading } = inv
   const [editOpen, setEditOpen] = useState(false)
   const [transferOpen, setTransferOpen] = useState(false)
   const [editing, setEditing] = useState<Warehouse | null>(null)
@@ -90,18 +90,14 @@ export function WarehousesView({ inv }: Props) {
     }
     setSaving(true)
     try {
-      for (const line of validLines) {
-        await transferStock(
-          {
-            itemId: line.itemId,
-            fromWarehouseId,
-            toWarehouseId,
-            quantity: Number(line.quantity),
-          },
-          { refresh: false }
-        )
-      }
-      await refresh()
+      await transferStockBatch({
+        fromWarehouseId,
+        toWarehouseId,
+        items: validLines.map((line) => ({
+          itemId: line.itemId,
+          quantity: Number(line.quantity),
+        })),
+      })
       toast.success(`Transferred ${validLines.length} product${validLines.length > 1 ? 's' : ''}`)
       setTransferOpen(false)
       setLines([])

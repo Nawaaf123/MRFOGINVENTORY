@@ -8,12 +8,34 @@ from sqlalchemy import select
 from sqlalchemy.orm import joinedload, selectinload
 
 from database import get_db
-from models import Order, OrderItem, InventoryTransaction
+from models import Order, OrderItem, InventoryTransaction, InventoryItem
 from schemas import OrderCreate, OrderUpdate, OrderOut, CancelRequest
 from auth import get_current_user
-from routers.stock import _apply_delta
+from routers.stock import _apply_delta, _available_qty
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
+
+
+async def _ensure_stock_available(db: AsyncSession, items: list) -> None:
+    """Reject the order if any warehouse line exceeds available stock."""
+    needed: dict[tuple, int] = {}
+    for oi in items:
+        key = (oi.item_id, oi.warehouse_id)
+        needed[key] = needed.get(key, 0) + oi.quantity
+
+    for (item_id, warehouse_id), qty in needed.items():
+        if qty <= 0:
+            raise HTTPException(status_code=400, detail="Order quantity must be positive")
+        available = await _available_qty(db, item_id, warehouse_id)
+        if available < qty:
+            item = (
+                await db.execute(select(InventoryItem).where(InventoryItem.id == item_id))
+            ).scalar_one_or_none()
+            sku = item.sku if item else str(item_id)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient stock for {sku}: {available} available, need {qty}",
+            )
 
 
 def _enrich_order(order: Order) -> dict:
@@ -58,6 +80,10 @@ async def list_orders(db: AsyncSession = Depends(get_db), _=Depends(get_current_
 
 @router.post("", response_model=OrderOut)
 async def create_order(body: OrderCreate, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    if not body.items:
+        raise HTTPException(status_code=400, detail="At least one order item is required")
+    await _ensure_stock_available(db, body.items)
+
     order = Order(shop_name=body.shop_name, shipping_fee=body.shipping_fee)
     db.add(order)
     await db.flush()
@@ -108,16 +134,16 @@ async def update_order(order_id: UUID, body: OrderUpdate, db: AsyncSession = Dep
         order.shipping_fee = body.shipping_fee
 
     if body.items is not None:
-        # Return stock from old items
+        # Return stock from old items first so availability check sees freed qty
         for old_oi in order.items:
             await _apply_delta(db, old_oi.item_id, old_oi.warehouse_id, old_oi.quantity)
 
-        # Delete old order items
         for old_oi in list(order.items):
             await db.delete(old_oi)
         await db.flush()
 
-        # Add new items and deduct stock
+        await _ensure_stock_available(db, body.items)
+
         for new_oi in body.items:
             oi = OrderItem(
                 order_id=order.id,

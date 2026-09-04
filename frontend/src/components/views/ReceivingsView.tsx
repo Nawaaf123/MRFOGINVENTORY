@@ -18,7 +18,7 @@ type Inv = ReturnType<typeof useInventory>
 interface Props { inv: Inv }
 
 export function ReceivingsView({ inv }: Props) {
-  const { transactions, allItems, warehouses, receiveStock, deleteReceiving, loading, refresh } = inv
+  const { transactions, allItems, warehouses, receiveStockBatch, deleteReceiving, loading } = inv
   const [_deleting, setDeleting] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -70,24 +70,20 @@ export function ReceivingsView({ inv }: Props) {
     }
     setSaving(true)
     try {
-      for (const line of validLines) {
-        await receiveStock(
-          {
-            itemId: line.itemId,
-            warehouseId,
-            quantity: Number(line.quantity),
-            bolNumber: bolNumber.trim(),
-          },
-          { refresh: false }
-        )
-      }
-      await refresh()
+      await receiveStockBatch({
+        warehouseId,
+        bolNumber: bolNumber.trim(),
+        items: validLines.map((line) => ({
+          itemId: line.itemId,
+          quantity: Number(line.quantity),
+        })),
+      })
       toast.success(`Received ${validLines.length} item${validLines.length > 1 ? 's' : ''}`)
       setOpen(false)
       setLines([])
       setBolNumber('')
-    } catch {
-      toast.error('Failed to receive stock')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to receive stock')
     } finally {
       setSaving(false)
     }

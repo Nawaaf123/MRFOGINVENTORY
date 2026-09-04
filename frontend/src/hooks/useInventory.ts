@@ -73,6 +73,22 @@ export function useInventory() {
     }
   }, [])
 
+  /** Lighter refresh after stock/order changes — skips payments, wholesalers, categories */
+  const refreshStock = useCallback(async () => {
+    try {
+      const [itemsRes, ordersRes, txRes] = await Promise.all([
+        apiGet<Record<string, unknown>[]>('/api/items'),
+        apiGet<Record<string, unknown>[]>('/api/orders'),
+        apiGet<Record<string, unknown>[]>('/api/transactions'),
+      ])
+      setAllItems(itemsRes.map(mapItem))
+      setOrders(ordersRes.map(mapOrder))
+      setTransactions(txRes.map(mapTransaction))
+    } catch (err) {
+      console.error('Failed to refresh stock data', err)
+    }
+  }, [])
+
   useEffect(() => {
     fetchAll()
   }, [fetchAll])
@@ -173,7 +189,17 @@ export function useInventory() {
     options?: { refresh?: boolean }
   ) => {
     await apiPost('/api/stock/receive', data)
-    if (options?.refresh !== false) await fetchAll()
+    if (options?.refresh !== false) await refreshStock()
+  }
+
+  const receiveStockBatch = async (data: {
+    warehouseId: string
+    bolNumber: string
+    bolDocumentUrl?: string
+    items: { itemId: string; quantity: number }[]
+  }) => {
+    await apiPost('/api/stock/receive-batch', data)
+    await refreshStock()
   }
 
   const updateStock = async (
@@ -183,7 +209,15 @@ export function useInventory() {
     options?: { refresh?: boolean }
   ) => {
     await apiPut('/api/stock/update', { itemId, warehouseId, quantity })
-    if (options?.refresh !== false) await fetchAll()
+    if (options?.refresh !== false) await refreshStock()
+  }
+
+  const adjustStockBatch = async (data: {
+    warehouseId: string
+    items: { itemId: string; quantity: number }[]
+  }) => {
+    await apiPost('/api/stock/adjust-batch', data)
+    await refreshStock()
   }
 
   const transferStock = async (
@@ -196,7 +230,16 @@ export function useInventory() {
     options?: { refresh?: boolean }
   ) => {
     await apiPost('/api/stock/transfer', data)
-    if (options?.refresh !== false) await fetchAll()
+    if (options?.refresh !== false) await refreshStock()
+  }
+
+  const transferStockBatch = async (data: {
+    fromWarehouseId: string
+    toWarehouseId: string
+    items: { itemId: string; quantity: number }[]
+  }) => {
+    await apiPost('/api/stock/transfer-batch', data)
+    await refreshStock()
   }
 
   const createOrder = async (data: {
@@ -205,22 +248,22 @@ export function useInventory() {
     items: { itemId: string; warehouseId: string; quantity: number; unitPrice: number }[]
   }) => {
     await apiPost('/api/orders', data)
-    await fetchAll()
+    await refreshStock()
   }
 
   const updateOrder = async (id: string, data: Partial<Order>) => {
     await apiPut(`/api/orders/${id}`, data)
-    await fetchAll()
+    await refreshStock()
   }
 
   const completeOrder = async (id: string) => {
     await apiPost(`/api/orders/${id}/complete`)
-    await fetchAll()
+    await refreshStock()
   }
 
   const deleteOrder = async (id: string, reason?: string) => {
     await apiPost(`/api/orders/${id}/cancel`, { reason })
-    await fetchAll()
+    await refreshStock()
   }
 
   const addWholesaler = async (data: Omit<Wholesaler, 'id'>) => {
@@ -271,12 +314,12 @@ export function useInventory() {
     data: { newBolNumber?: string; quantity?: number; items?: { itemId: string; warehouseId: string; quantity: number }[] }
   ) => {
     await apiPut('/api/transactions/receiving', { bolNumber, ...data })
-    await fetchAll()
+    await refreshStock()
   }
 
   const deleteReceiving = async (bolNumber: string) => {
     await apiDelete(`/api/transactions/receiving/${encodeURIComponent(bolNumber)}`)
-    await fetchAll()
+    await refreshStock()
   }
 
   return {
@@ -305,8 +348,11 @@ export function useInventory() {
     updateItem,
     deleteItem,
     receiveStock,
+    receiveStockBatch,
     updateStock,
+    adjustStockBatch,
     transferStock,
+    transferStockBatch,
     createOrder,
     updateOrder,
     completeOrder,
@@ -322,5 +368,6 @@ export function useInventory() {
     updateReceiving,
     deleteReceiving,
     refresh: fetchAll,
+    refreshStock,
   }
 }

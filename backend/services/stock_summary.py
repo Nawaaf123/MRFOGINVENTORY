@@ -145,6 +145,7 @@ def build_item_summary(
     order_lines: list[dict[str, Any]],
     warehouse_filter: Optional[UUID] = None,
     warehouses: Optional[dict[str, str]] = None,
+    include_ledger: bool = True,
 ) -> ItemSummary:
     """
     stocks: [{warehouse_id, warehouse_name, quantity}]
@@ -230,40 +231,41 @@ def build_item_summary(
     running = implied_opening
     ledger: list[LedgerEntry] = []
 
-    if implied_opening != 0:
-        ledger.append(
-            LedgerEntry(
-                id=f"implied-opening-{item_id}",
-                type="implied_opening",
-                quantity=implied_opening,
-                signed_quantity=implied_opening,
-                remaining_after=max(0, implied_opening),
-                date=signed_entries[0]["date"] if signed_entries else datetime.utcnow(),
-                warehouse_id=str(warehouse_filter) if warehouse_filter else None,
-                warehouse_name=wh_name(warehouse_filter) if warehouse_filter else "All warehouses",
-                source="Implied opening (closes ledger to live stock)",
+    if include_ledger:
+        if implied_opening != 0:
+            ledger.append(
+                LedgerEntry(
+                    id=f"implied-opening-{item_id}",
+                    type="implied_opening",
+                    quantity=implied_opening,
+                    signed_quantity=implied_opening,
+                    remaining_after=max(0, implied_opening),
+                    date=signed_entries[0]["date"] if signed_entries else datetime.utcnow(),
+                    warehouse_id=str(warehouse_filter) if warehouse_filter else None,
+                    warehouse_name=wh_name(warehouse_filter) if warehouse_filter else "All warehouses",
+                    source="Implied opening (closes ledger to live stock)",
+                )
             )
-        )
 
-    for e in signed_entries:
-        running += e["signed_quantity"]
-        ledger.append(
-            LedgerEntry(
-                id=e["id"],
-                type=e["type"],
-                quantity=e["quantity"],
-                signed_quantity=e["signed_quantity"],
-                remaining_after=max(0, running),
-                date=e["date"],
-                warehouse_id=e["warehouse_id"],
-                warehouse_name=e["warehouse_name"],
-                source=e.get("source"),
-                bol_number=e.get("bol_number"),
-                bol_document_url=e.get("bol_document_url"),
+        for e in signed_entries:
+            running += e["signed_quantity"]
+            ledger.append(
+                LedgerEntry(
+                    id=e["id"],
+                    type=e["type"],
+                    quantity=e["quantity"],
+                    signed_quantity=e["signed_quantity"],
+                    remaining_after=max(0, running),
+                    date=e["date"],
+                    warehouse_id=e["warehouse_id"],
+                    warehouse_name=e["warehouse_name"],
+                    source=e.get("source"),
+                    bol_number=e.get("bol_number"),
+                    bol_document_url=e.get("bol_document_url"),
+                )
             )
-        )
 
-    ledger.reverse()
+        ledger.reverse()
 
     breakdown_map: dict[str, WarehouseBreakdown] = {}
     for s in stocks:

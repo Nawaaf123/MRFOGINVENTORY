@@ -20,6 +20,9 @@ from schemas import (
     StockUpdateRequest,
     StockReceiveRequest,
     StockTransferRequest,
+    StockReceiveBatchRequest,
+    StockTransferBatchRequest,
+    StockAdjustBatchRequest,
     ApplyDeltasRequest,
     StockSummaryResponse,
 )
@@ -82,14 +85,30 @@ async def _apply_delta(db: AsyncSession, item_id, warehouse_id, delta: int) -> W
     return stock
 
 
+async def _available_qty(db: AsyncSession, item_id, warehouse_id) -> int:
+    result = await db.execute(
+        select(WarehouseStock).where(
+            WarehouseStock.item_id == item_id,
+            WarehouseStock.warehouse_id == warehouse_id,
+        )
+    )
+    stock = result.scalar_one_or_none()
+    return stock.quantity if stock else 0
+
+
 @router.get("/summary", response_model=StockSummaryResponse)
 async def stock_summary(
     warehouse_id: Optional[UUID] = Query(None),
     item_id: Optional[UUID] = Query(None),
     q: Optional[str] = Query(None),
+    include_ledger: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
+    # Detail expand: always include ledger for a single item
+    if item_id is not None:
+        include_ledger = True
+
     items_q = select(InventoryItem).options(
         selectinload(InventoryItem.stocks).joinedload(WarehouseStock.warehouse)
     ).order_by(InventoryItem.sku)
@@ -110,21 +129,15 @@ async def stock_summary(
     warehouses = (await db.execute(select(Warehouse))).scalars().all()
     warehouse_names = {str(w.id): w.name for w in warehouses}
 
-    tx_q = (
-        select(InventoryTransaction)
-        .options(
-            joinedload(InventoryTransaction.item),
-            joinedload(InventoryTransaction.warehouse),
-        )
+    tx_q = select(InventoryTransaction).options(
+        joinedload(InventoryTransaction.item),
+        joinedload(InventoryTransaction.warehouse),
     )
     if item_id:
         tx_q = tx_q.where(InventoryTransaction.item_id == item_id)
     transactions = (await db.execute(tx_q)).scalars().unique().all()
 
-    orders_q = (
-        select(Order)
-        .options(selectinload(Order.items).joinedload(OrderItem.warehouse))
-    )
+    orders_q = select(Order).options(selectinload(Order.items).joinedload(OrderItem.warehouse))
     orders = (await db.execute(orders_q)).scalars().unique().all()
 
     txs_by_item: dict[str, list] = {}
@@ -182,6 +195,7 @@ async def stock_summary(
             order_lines=lines_by_item.get(str(item.id), []),
             warehouse_filter=warehouse_id,
             warehouses=warehouse_names,
+            include_ledger=include_ledger,
         )
         summaries.append(summary.to_dict())
 
@@ -204,6 +218,29 @@ async def update_stock(body: StockUpdateRequest, db: AsyncSession = Depends(get_
     return {"ok": True}
 
 
+@router.post("/adjust-batch")
+async def adjust_stock_batch(body: StockAdjustBatchRequest, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    if not body.items:
+        raise HTTPException(status_code=400, detail="At least one item is required")
+    changed = 0
+    for line in body.items:
+        if line.quantity < 0:
+            raise HTTPException(status_code=400, detail="Quantity cannot be negative")
+        _, delta = await _upsert_stock(db, line.item_id, body.warehouse_id, line.quantity)
+        if delta != 0:
+            changed += 1
+            db.add(
+                InventoryTransaction(
+                    item_id=line.item_id,
+                    warehouse_id=body.warehouse_id,
+                    quantity=delta,
+                    type="manual_adjust",
+                )
+            )
+    await db.commit()
+    return {"ok": True, "changed": changed}
+
+
 @router.post("/receive")
 async def receive_stock(body: StockReceiveRequest, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
     await _apply_delta(db, body.item_id, body.warehouse_id, body.quantity)
@@ -220,6 +257,30 @@ async def receive_stock(body: StockReceiveRequest, db: AsyncSession = Depends(ge
     return {"ok": True}
 
 
+@router.post("/receive-batch")
+async def receive_stock_batch(body: StockReceiveBatchRequest, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    if not body.bol_number.strip():
+        raise HTTPException(status_code=400, detail="BOL number is required")
+    if not body.items:
+        raise HTTPException(status_code=400, detail="At least one item is required")
+    for line in body.items:
+        if line.quantity <= 0:
+            raise HTTPException(status_code=400, detail="Receive quantity must be positive")
+        await _apply_delta(db, line.item_id, body.warehouse_id, line.quantity)
+        db.add(
+            InventoryTransaction(
+                item_id=line.item_id,
+                warehouse_id=body.warehouse_id,
+                quantity=line.quantity,
+                bol_number=body.bol_number.strip(),
+                bol_document_url=body.bol_document_url,
+                type="receive",
+            )
+        )
+    await db.commit()
+    return {"ok": True, "count": len(body.items)}
+
+
 @router.post("/transfer")
 async def transfer_stock(body: StockTransferRequest, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
     if body.quantity <= 0:
@@ -227,14 +288,7 @@ async def transfer_stock(body: StockTransferRequest, db: AsyncSession = Depends(
     if body.from_warehouse_id == body.to_warehouse_id:
         raise HTTPException(status_code=400, detail="Source and destination warehouses must differ")
 
-    result = await db.execute(
-        select(WarehouseStock).where(
-            WarehouseStock.item_id == body.item_id,
-            WarehouseStock.warehouse_id == body.from_warehouse_id,
-        )
-    )
-    source = result.scalar_one_or_none()
-    available = source.quantity if source else 0
+    available = await _available_qty(db, body.item_id, body.from_warehouse_id)
     if available < body.quantity:
         raise HTTPException(
             status_code=400,
@@ -243,22 +297,69 @@ async def transfer_stock(body: StockTransferRequest, db: AsyncSession = Depends(
 
     await _apply_delta(db, body.item_id, body.from_warehouse_id, -body.quantity)
     await _apply_delta(db, body.item_id, body.to_warehouse_id, body.quantity)
-    tx_out = InventoryTransaction(
-        item_id=body.item_id,
-        warehouse_id=body.from_warehouse_id,
-        quantity=-body.quantity,
-        type="transfer_out",
+    db.add(
+        InventoryTransaction(
+            item_id=body.item_id,
+            warehouse_id=body.from_warehouse_id,
+            quantity=-body.quantity,
+            type="transfer_out",
+        )
     )
-    tx_in = InventoryTransaction(
-        item_id=body.item_id,
-        warehouse_id=body.to_warehouse_id,
-        quantity=body.quantity,
-        type="transfer_in",
+    db.add(
+        InventoryTransaction(
+            item_id=body.item_id,
+            warehouse_id=body.to_warehouse_id,
+            quantity=body.quantity,
+            type="transfer_in",
+        )
     )
-    db.add(tx_out)
-    db.add(tx_in)
     await db.commit()
     return {"ok": True}
+
+
+@router.post("/transfer-batch")
+async def transfer_stock_batch(body: StockTransferBatchRequest, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    if body.from_warehouse_id == body.to_warehouse_id:
+        raise HTTPException(status_code=400, detail="Source and destination warehouses must differ")
+    if not body.items:
+        raise HTTPException(status_code=400, detail="At least one item is required")
+
+    # Pre-check all lines (aggregate duplicate SKUs)
+    needed: dict[UUID, int] = {}
+    for line in body.items:
+        if line.quantity <= 0:
+            raise HTTPException(status_code=400, detail="Transfer quantity must be positive")
+        needed[line.item_id] = needed.get(line.item_id, 0) + line.quantity
+
+    for item_id, qty in needed.items():
+        available = await _available_qty(db, item_id, body.from_warehouse_id)
+        if available < qty:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient stock for item {item_id} ({available} available, need {qty})",
+            )
+
+    for line in body.items:
+        await _apply_delta(db, line.item_id, body.from_warehouse_id, -line.quantity)
+        await _apply_delta(db, line.item_id, body.to_warehouse_id, line.quantity)
+        db.add(
+            InventoryTransaction(
+                item_id=line.item_id,
+                warehouse_id=body.from_warehouse_id,
+                quantity=-line.quantity,
+                type="transfer_out",
+            )
+        )
+        db.add(
+            InventoryTransaction(
+                item_id=line.item_id,
+                warehouse_id=body.to_warehouse_id,
+                quantity=line.quantity,
+                type="transfer_in",
+            )
+        )
+    await db.commit()
+    return {"ok": True, "count": len(body.items)}
 
 
 @router.post("/apply-deltas")
