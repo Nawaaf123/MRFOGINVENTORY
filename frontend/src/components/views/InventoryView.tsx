@@ -1,16 +1,15 @@
-import { useState } from 'react'
-import { Search, Plus, Filter, Download, ArrowUpDown, Pencil } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Search, Plus, Filter, Download, ArrowUpDown, Pencil, Trash2 } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { getTotalQuantity, formatCurrency } from '@/lib/utils'
+import { getTotalQuantity } from '@/lib/utils'
 import { downloadInventorySheet } from '@/lib/inventorySheet'
 import { toast } from 'sonner'
 import type { InventoryItem, Warehouse } from '@/types/inventory'
@@ -53,6 +52,22 @@ export function InventoryView({ inv }: Props) {
     updateItem,
     deleteItem,
   } = inv
+
+  const sortedWarehouses = useMemo(
+    () => [...warehouses].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
+    [warehouses]
+  )
+
+  const visibleWarehouses = useMemo(
+    () =>
+      warehouseFilter
+        ? sortedWarehouses.filter((w) => w.id === warehouseFilter)
+        : sortedWarehouses,
+    [sortedWarehouses, warehouseFilter]
+  )
+
+  const getWarehouseQty = (item: InventoryItem, warehouseId: string) =>
+    item.stock.find((s) => s.warehouseId === warehouseId)?.quantity ?? 0
 
   const uniqueCategories = Array.from(
     new Set(allItems.map((i) => i.category).filter((c): c is string => Boolean(c?.trim())))
@@ -246,69 +261,80 @@ export function InventoryView({ inv }: Props) {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="sticky left-0 z-10 bg-background">SKU</TableHead>
               <TableHead>
                 <button onClick={() => toggleSort('name')} className="flex items-center gap-1 hover:text-foreground">
-                  Name <ArrowUpDown className="h-3 w-3" />
+                  Flavor <ArrowUpDown className="h-3 w-3" />
                 </button>
               </TableHead>
-              <TableHead>SKU</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead>Subcategory</TableHead>
               <TableHead>
                 <button onClick={() => toggleSort('quantity')} className="flex items-center gap-1 hover:text-foreground">
-                  Stock <ArrowUpDown className="h-3 w-3" />
+                  Qty <ArrowUpDown className="h-3 w-3" />
                 </button>
               </TableHead>
-              <TableHead>
-                <button onClick={() => toggleSort('price')} className="flex items-center gap-1 hover:text-foreground">
-                  Price <ArrowUpDown className="h-3 w-3" />
-                </button>
-              </TableHead>
-              <TableHead>Warehouses</TableHead>
+              {visibleWarehouses.map((w) => (
+                <TableHead key={w.id} className="text-center min-w-[100px]">
+                  {w.name}
+                </TableHead>
+              ))}
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {items.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                <TableCell
+                  colSpan={4 + visibleWarehouses.length}
+                  className="text-center py-12 text-muted-foreground"
+                >
                   No items found
                 </TableCell>
               </TableRow>
             )}
             {items.map((item) => {
-              const total = getTotalQuantity(item)
-              const low = total <= item.minStock
+              const total = warehouseFilter
+                ? getWarehouseQty(item, warehouseFilter)
+                : getTotalQuantity(item)
+              const low = total <= item.minStock && total > 0
               return (
                 <TableRow key={item.id}>
-                  <TableCell className="font-medium">{item.name}</TableCell>
-                  <TableCell className="text-muted-foreground font-mono text-sm">{item.sku}</TableCell>
-                  <TableCell>
-                    {item.category ? <Badge variant="secondary">{item.category}</Badge> : '—'}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {item.subCategory || '—'}
+                  <TableCell className="sticky left-0 z-10 bg-background font-mono text-sm text-muted-foreground">
+                    {item.sku}
                   </TableCell>
                   <TableCell>
-                    <span className={low ? 'text-destructive font-semibold' : ''}>{total}</span>
-                    {low && <span className="ml-1 text-xs text-destructive">(low)</span>}
+                    <div className="font-medium">{item.name}</div>
+                    {(item.category || item.subCategory) && (
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {[item.category, item.subCategory].filter(Boolean).join(' · ')}
+                      </div>
+                    )}
                   </TableCell>
-                  <TableCell>{formatCurrency(item.price)}</TableCell>
                   <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {item.stock.filter((s) => s.quantity > 0).map((s) => (
-                        <Badge key={s.warehouseId} variant="outline" className="text-xs">
-                          {s.warehouseName}: {s.quantity}
-                        </Badge>
-                      ))}
-                    </div>
+                    <span className={low ? 'text-destructive font-semibold' : 'font-semibold'}>
+                      {total}
+                    </span>
                   </TableCell>
-                  <TableCell className="text-right space-x-1">
-                    <Button variant="ghost" size="sm" onClick={() => openEdit(item)}>
+                  {visibleWarehouses.map((w) => {
+                    const qty = getWarehouseQty(item, w.id)
+                    return (
+                      <TableCell key={w.id} className="text-center tabular-nums">
+                        <span className={qty > 0 ? 'font-semibold text-foreground' : 'text-muted-foreground/50'}>
+                          {qty}
+                        </span>
+                      </TableCell>
+                    )
+                  })}
+                  <TableCell className="text-right whitespace-nowrap">
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openEdit(item)}>
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => handleDelete(item)}>
-                      Delete
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                      onClick={() => handleDelete(item)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -324,8 +350,10 @@ export function InventoryView({ inv }: Props) {
           <div className="text-center py-12 text-muted-foreground">No items found</div>
         )}
         {items.map((item) => {
-          const total = getTotalQuantity(item)
-          const low = total <= item.minStock
+          const total = warehouseFilter
+            ? getWarehouseQty(item, warehouseFilter)
+            : getTotalQuantity(item)
+          const low = total <= item.minStock && total > 0
           return (
             <Card key={item.id}>
               <CardContent className="p-4">
@@ -333,24 +361,24 @@ export function InventoryView({ inv }: Props) {
                   <div>
                     <p className="font-semibold">{item.name}</p>
                     <p className="text-xs text-muted-foreground font-mono">{item.sku}</p>
-                    {item.subCategory && (
-                      <p className="text-xs text-muted-foreground mt-0.5">{item.subCategory}</p>
+                    {(item.category || item.subCategory) && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {[item.category, item.subCategory].filter(Boolean).join(' · ')}
+                      </p>
                     )}
                   </div>
-                  {item.category ? <Badge variant="secondary">{item.category}</Badge> : null}
+                  <span className={low ? 'text-destructive font-bold' : 'font-bold'}>{total}</span>
                 </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className={low ? 'text-destructive font-bold' : 'font-medium'}>
-                    Stock: {total}{low && ' ⚠'}
-                  </span>
-                  <span className="text-muted-foreground">{formatCurrency(item.price)}</span>
-                </div>
-                <div className="flex flex-wrap gap-1 mt-2">
-                  {item.stock.filter((s) => s.quantity > 0).map((s) => (
-                    <Badge key={s.warehouseId} variant="outline" className="text-xs">
-                      {s.warehouseName}: {s.quantity}
-                    </Badge>
-                  ))}
+                <div className="grid grid-cols-2 gap-2 mt-3">
+                  {visibleWarehouses.map((w) => {
+                    const qty = getWarehouseQty(item, w.id)
+                    return (
+                      <div key={w.id} className="rounded-md border px-2 py-1.5 text-sm flex justify-between">
+                        <span className="text-muted-foreground truncate pr-2">{w.name}</span>
+                        <span className={qty > 0 ? 'font-semibold' : 'text-muted-foreground/50'}>{qty}</span>
+                      </div>
+                    )
+                  })}
                 </div>
                 <div className="mt-3 flex justify-end gap-2">
                   <Button variant="ghost" size="sm" onClick={() => openEdit(item)}>Edit</Button>
