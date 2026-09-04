@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload, joinedload
 
 from database import get_db
-from models import InventoryItem, WarehouseStock, StockAuditLog
+from models import InventoryItem, WarehouseStock, StockAuditLog, InventoryTransaction
 from schemas import ItemCreate, ItemUpdate, ItemOut
 from auth import get_current_user
 
@@ -67,6 +67,15 @@ async def create_item(body: ItemCreate, db: AsyncSession = Depends(get_db), _=De
                 delta=s.quantity,
             )
             db.add(audit)
+            if s.quantity != 0:
+                db.add(
+                    InventoryTransaction(
+                        item_id=item.id,
+                        warehouse_id=s.warehouse_id,
+                        quantity=s.quantity,
+                        type="opening_balance",
+                    )
+                )
 
     await db.commit()
     result = await db.execute(

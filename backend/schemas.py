@@ -191,6 +191,48 @@ class ApplyDeltasRequest(BaseModel):
     changes: List[StockDelta]
 
 
+class StockSummaryLedgerEntry(BaseModel):
+    id: str
+    type: str
+    quantity: int
+    signed_quantity: int
+    remaining_after: int
+    date: datetime
+    warehouse_id: Optional[UUID] = None
+    warehouse_name: Optional[str] = None
+    source: Optional[str] = None
+    bol_number: Optional[str] = None
+    bol_document_url: Optional[str] = None
+
+
+class StockSummaryWarehouseBreakdown(BaseModel):
+    warehouse_id: UUID
+    warehouse_name: str
+    received: int
+    sold: int
+    remaining: int
+
+
+class StockSummaryItem(BaseModel):
+    item_id: UUID
+    item_name: str
+    item_sku: str
+    category: Optional[str] = None
+    sub_category: Optional[str] = None
+    current_stock: int
+    received: int
+    sold: int
+    remaining: int
+    implied_opening: int
+    warehouse_breakdown: List[StockSummaryWarehouseBreakdown] = []
+    ledger: List[StockSummaryLedgerEntry] = []
+
+
+class StockSummaryResponse(BaseModel):
+    warehouse_id: Optional[UUID] = None
+    items: List[StockSummaryItem]
+
+
 # ── Transactions ──────────────────────────────────────────────────────────────
 
 class TransactionOut(BaseModel):
