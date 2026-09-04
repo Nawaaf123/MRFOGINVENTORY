@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { format } from 'date-fns'
-import { ExternalLink, Trash2, Plus, Search, X } from 'lucide-react'
+import { ExternalLink, Trash2, Plus } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { ScrollArea } from '@/components/ui/scroll-area'
+import { ProductPicker, type PickedProductLine } from '@/components/ProductPicker'
 import { openBolDocument } from '@/lib/bolDocs'
 import { toast } from 'sonner'
 import type { InventoryTransaction } from '@/types/inventory'
@@ -17,22 +17,14 @@ import type { InventoryTransaction } from '@/types/inventory'
 type Inv = ReturnType<typeof useInventory>
 interface Props { inv: Inv }
 
-interface ReceiveLine {
-  itemId: string
-  itemName: string
-  itemSku: string
-  quantity: string
-}
-
 export function ReceivingsView({ inv }: Props) {
-  const { transactions, allItems, warehouses, receiveStock, deleteReceiving, loading } = inv
+  const { transactions, allItems, warehouses, receiveStock, deleteReceiving, loading, refresh } = inv
   const [_deleting, setDeleting] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [productSearch, setProductSearch] = useState('')
   const [warehouseId, setWarehouseId] = useState('')
   const [bolNumber, setBolNumber] = useState('')
-  const [lines, setLines] = useState<ReceiveLine[]>([])
+  const [lines, setLines] = useState<PickedProductLine[]>([])
 
   const sortedWarehouses = useMemo(
     () => [...warehouses].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
@@ -50,54 +42,11 @@ export function ReceivingsView({ inv }: Props) {
     return acc
   }, {})
 
-  const filteredProducts = useMemo(() => {
-    const q = productSearch.trim().toLowerCase()
-    if (!q) return allItems.slice(0, 40)
-    return allItems
-      .filter((item) => {
-        const hay = [item.name, item.sku, item.category, item.subCategory]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase()
-        return hay.includes(q)
-      })
-      .slice(0, 50)
-  }, [allItems, productSearch])
-
   const openDialog = () => {
-    setProductSearch('')
     setWarehouseId(sortedWarehouses[0]?.id || '')
     setBolNumber('')
     setLines([])
     setOpen(true)
-  }
-
-  const addProductLine = (itemId: string) => {
-    const item = allItems.find((i) => i.id === itemId)
-    if (!item) return
-    setLines((prev) => {
-      const existing = prev.find((l) => l.itemId === itemId)
-      if (existing) {
-        return prev.map((l) =>
-          l.itemId === itemId
-            ? { ...l, quantity: String(Math.max(1, Number(l.quantity || 0) + 1)) }
-            : l
-        )
-      }
-      return [
-        ...prev,
-        { itemId: item.id, itemName: item.name, itemSku: item.sku, quantity: '1' },
-      ]
-    })
-    setProductSearch('')
-  }
-
-  const updateLineQty = (itemId: string, quantity: string) => {
-    setLines((prev) => prev.map((l) => (l.itemId === itemId ? { ...l, quantity } : l)))
-  }
-
-  const removeLine = (itemId: string) => {
-    setLines((prev) => prev.filter((l) => l.itemId !== itemId))
   }
 
   const handleDelete = async (t: InventoryTransaction) => {
@@ -122,17 +71,20 @@ export function ReceivingsView({ inv }: Props) {
     setSaving(true)
     try {
       for (const line of validLines) {
-        await receiveStock({
-          itemId: line.itemId,
-          warehouseId,
-          quantity: Number(line.quantity),
-          bolNumber: bolNumber.trim(),
-        })
+        await receiveStock(
+          {
+            itemId: line.itemId,
+            warehouseId,
+            quantity: Number(line.quantity),
+            bolNumber: bolNumber.trim(),
+          },
+          { refresh: false }
+        )
       }
+      await refresh()
       toast.success(`Received ${validLines.length} item${validLines.length > 1 ? 's' : ''}`)
       setOpen(false)
       setLines([])
-      setProductSearch('')
       setBolNumber('')
     } catch {
       toast.error('Failed to receive stock')
@@ -228,85 +180,7 @@ export function ReceivingsView({ inv }: Props) {
                 />
               </div>
             </div>
-
-            <div>
-              <Label>Search products</Label>
-              <div className="relative mt-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  value={productSearch}
-                  onChange={(e) => setProductSearch(e.target.value)}
-                  placeholder="Search by name, SKU, category..."
-                  className="pl-9"
-                />
-              </div>
-              <ScrollArea className="mt-2 h-44 rounded-md border">
-                <div className="p-1">
-                  {filteredProducts.length === 0 && (
-                    <p className="text-sm text-muted-foreground p-3 text-center">No products found</p>
-                  )}
-                  {filteredProducts.map((item) => {
-                    const selected = lines.some((l) => l.itemId === item.id)
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => addProductLine(item.id)}
-                        className="w-full text-left rounded-md px-3 py-2 hover:bg-accent transition-colors"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium truncate">{item.name}</p>
-                            <p className="text-xs text-muted-foreground font-mono truncate">
-                              {item.sku}
-                              {item.category ? ` · ${item.category}` : ''}
-                            </p>
-                          </div>
-                          <Badge variant={selected ? 'default' : 'outline'} className="shrink-0">
-                            {selected ? 'Added' : 'Add'}
-                          </Badge>
-                        </div>
-                      </button>
-                    )
-                  })}
-                </div>
-              </ScrollArea>
-              {!productSearch.trim() && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Type to search all products. Showing first matches.
-                </p>
-              )}
-            </div>
-
-            {lines.length > 0 && (
-              <div className="space-y-2">
-                <Label>Quantities to receive ({lines.length})</Label>
-                {lines.map((line) => (
-                  <div key={line.itemId} className="flex items-center gap-2 rounded-md border p-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{line.itemName}</p>
-                      <p className="text-xs text-muted-foreground font-mono">{line.itemSku}</p>
-                    </div>
-                    <Input
-                      type="number"
-                      min="1"
-                      value={line.quantity}
-                      onChange={(e) => updateLineQty(line.itemId, e.target.value)}
-                      className="w-24 h-8"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0 text-destructive"
-                      onClick={() => removeLine(line.itemId)}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
+            <ProductPicker items={allItems} lines={lines} onChange={setLines} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>

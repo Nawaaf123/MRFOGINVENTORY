@@ -162,15 +162,18 @@ export function useInventory() {
     await fetchAll()
   }
 
-  const receiveStock = async (data: {
-    itemId: string
-    warehouseId: string
-    quantity: number
-    bolNumber: string
-    bolDocumentUrl?: string
-  }) => {
+  const receiveStock = async (
+    data: {
+      itemId: string
+      warehouseId: string
+      quantity: number
+      bolNumber: string
+      bolDocumentUrl?: string
+    },
+    options?: { refresh?: boolean }
+  ) => {
     await apiPost('/api/stock/receive', data)
-    await fetchAll()
+    if (options?.refresh !== false) await fetchAll()
   }
 
   const updateStock = async (itemId: string, warehouseId: string, quantity: number) => {
@@ -178,14 +181,17 @@ export function useInventory() {
     await fetchAll()
   }
 
-  const transferStock = async (data: {
-    itemId: string
-    fromWarehouseId: string
-    toWarehouseId: string
-    quantity: number
-  }) => {
+  const transferStock = async (
+    data: {
+      itemId: string
+      fromWarehouseId: string
+      toWarehouseId: string
+      quantity: number
+    },
+    options?: { refresh?: boolean }
+  ) => {
     await apiPost('/api/stock/transfer', data)
-    await fetchAll()
+    if (options?.refresh !== false) await fetchAll()
   }
 
   const createOrder = async (data: {

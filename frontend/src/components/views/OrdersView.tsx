@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { format } from 'date-fns'
 import { Search, Plus, FileText, Eye, Check } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ProductPicker, type PickedProductLine } from '@/components/ProductPicker'
 import { formatCurrency } from '@/lib/utils'
 import { downloadInvoice } from '@/lib/invoice'
 import { downloadPickSheet, previewPickSheet } from '@/lib/pickSheet'
@@ -68,10 +69,19 @@ export function OrdersView({ inv }: Props) {
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState(false)
   const [shopName, setShopName] = useState('')
+  const [warehouseId, setWarehouseId] = useState('')
   const [shippingFee, setShippingFee] = useState('0')
-  const [lines, setLines] = useState([{ itemId: '', warehouseId: '', quantity: '1', unitPrice: '0' }])
+  const [lines, setLines] = useState<PickedProductLine[]>([])
+  const [saving, setSaving] = useState(false)
 
-  const sortedWholesalers = [...wholesalers].sort((a, b) => a.name.localeCompare(b.name))
+  const sortedWholesalers = useMemo(
+    () => [...wholesalers].sort((a, b) => a.name.localeCompare(b.name)),
+    [wholesalers]
+  )
+  const sortedWarehouses = useMemo(
+    () => [...warehouses].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
+    [warehouses]
+  )
 
   const filtered = orders.filter((o) =>
     o.shopName.toLowerCase().includes(search.toLowerCase())
@@ -90,6 +100,20 @@ export function OrdersView({ inv }: Props) {
     return acc
   }, {})
 
+  const getAvailableQty = (itemId: string) => {
+    if (!warehouseId) return undefined
+    const item = allItems.find((i) => i.id === itemId)
+    return item?.stock.find((s) => s.warehouseId === warehouseId)?.quantity ?? 0
+  }
+
+  const openDialog = () => {
+    setShopName('')
+    setWarehouseId(sortedWarehouses[0]?.id ?? '')
+    setShippingFee('0')
+    setLines([])
+    setOpen(true)
+  }
+
   const handleComplete = async (order: Order) => {
     try {
       await completeOrder(order.id)
@@ -101,21 +125,30 @@ export function OrdersView({ inv }: Props) {
 
   const handleCreate = async () => {
     const items = lines
-      .filter((l) => l.itemId && l.warehouseId && Number(l.quantity) > 0)
+      .filter((l) => Number(l.quantity) > 0)
       .map((l) => ({
         itemId: l.itemId,
-        warehouseId: l.warehouseId,
+        warehouseId,
         quantity: Number(l.quantity),
         unitPrice: Number(l.unitPrice) || 0,
       }))
-    if (!shopName.trim() || items.length === 0) {
-      toast.error('Select a wholesaler and at least one item')
+    if (!shopName.trim() || !warehouseId || items.length === 0) {
+      toast.error('Select wholesaler, warehouse, and at least one product')
       return
     }
     if (!wholesalers.some((w) => w.name === shopName.trim())) {
       toast.error('Choose a wholesaler from the list (add one on the Wholesalers page first)')
       return
     }
+    for (const line of items) {
+      const available = getAvailableQty(line.itemId) ?? 0
+      if (line.quantity > available) {
+        const picked = lines.find((l) => l.itemId === line.itemId)
+        toast.error(`${picked?.itemSku ?? 'Item'}: only ${available} available`)
+        return
+      }
+    }
+    setSaving(true)
     try {
       await createOrder({
         shopName: shopName.trim(),
@@ -126,9 +159,11 @@ export function OrdersView({ inv }: Props) {
       setOpen(false)
       setShopName('')
       setShippingFee('0')
-      setLines([{ itemId: '', warehouseId: warehouses[0]?.id ?? '', quantity: '1', unitPrice: '0' }])
+      setLines([])
     } catch {
       toast.error('Failed to create order')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -164,10 +199,9 @@ export function OrdersView({ inv }: Props) {
       <div className="p-6 border-b bg-background sticky top-0 z-10">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold">Orders</h1>
-          <Button size="sm" onClick={() => {
-            setLines([{ itemId: '', warehouseId: warehouses[0]?.id ?? '', quantity: '1', unitPrice: '0' }])
-            setOpen(true)
-          }}><Plus className="h-4 w-4 mr-1" />New Order</Button>
+          <Button size="sm" onClick={openDialog}>
+            <Plus className="h-4 w-4 mr-1" />New Order
+          </Button>
         </div>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -243,11 +277,11 @@ export function OrdersView({ inv }: Props) {
       </Tabs>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>New Order</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-3 overflow-y-auto pr-1 flex-1">
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>Wholesaler</Label>
@@ -271,74 +305,43 @@ export function OrdersView({ inv }: Props) {
                 )}
               </div>
               <div>
-                <Label>Shipping fee</Label>
-                <Input type="number" min="0" step="0.01" value={shippingFee} onChange={(e) => setShippingFee(e.target.value)} className="mt-1" />
+                <Label>Ship from warehouse</Label>
+                <Select value={warehouseId} onValueChange={setWarehouseId}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="Warehouse" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sortedWarehouses.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-            {lines.map((line, idx) => (
-              <div key={idx} className="grid grid-cols-12 gap-2 items-end">
-                <div className="col-span-4">
-                  <Label>Item</Label>
-                  <Select
-                    value={line.itemId}
-                    onValueChange={(v) => {
-                      const item = allItems.find((i) => i.id === v)
-                      setLines((prev) => prev.map((l, i) => i === idx ? {
-                        ...l,
-                        itemId: v,
-                        unitPrice: String(item?.price ?? 0),
-                        warehouseId: l.warehouseId || warehouses[0]?.id || '',
-                      } : l))
-                    }}
-                  >
-                    <SelectTrigger className="mt-1"><SelectValue placeholder="Select item" /></SelectTrigger>
-                    <SelectContent>
-                      {allItems.map((item) => (
-                        <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="col-span-3">
-                  <Label>Warehouse</Label>
-                  <Select
-                    value={line.warehouseId}
-                    onValueChange={(v) => setLines((prev) => prev.map((l, i) => i === idx ? { ...l, warehouseId: v } : l))}
-                  >
-                    <SelectTrigger className="mt-1"><SelectValue placeholder="Warehouse" /></SelectTrigger>
-                    <SelectContent>
-                      {warehouses.map((w) => (
-                        <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="col-span-2">
-                  <Label>Qty</Label>
-                  <Input type="number" min="1" value={line.quantity} className="mt-1" onChange={(e) => setLines((prev) => prev.map((l, i) => i === idx ? { ...l, quantity: e.target.value } : l))} />
-                </div>
-                <div className="col-span-2">
-                  <Label>Price</Label>
-                  <Input type="number" min="0" step="0.01" value={line.unitPrice} className="mt-1" onChange={(e) => setLines((prev) => prev.map((l, i) => i === idx ? { ...l, unitPrice: e.target.value } : l))} />
-                </div>
-                <div className="col-span-1">
-                  <Button variant="ghost" size="sm" className="w-full" onClick={() => setLines((prev) => prev.length <= 1 ? prev : prev.filter((_, i) => i !== idx))}>
-                    ×
-                  </Button>
-                </div>
-              </div>
-            ))}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setLines((prev) => [...prev, { itemId: '', warehouseId: warehouses[0]?.id ?? '', quantity: '1', unitPrice: '0' }])}
-            >
-              Add line
-            </Button>
+            <div>
+              <Label>Shipping fee</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={shippingFee}
+                onChange={(e) => setShippingFee(e.target.value)}
+                className="mt-1"
+              />
+            </div>
+            <ProductPicker
+              items={allItems}
+              lines={lines}
+              onChange={setLines}
+              showUnitPrice
+              getAvailableQty={getAvailableQty}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreate}>Create Order</Button>
+            <Button onClick={handleCreate} disabled={saving || lines.length === 0}>
+              {saving ? 'Creating...' : 'Create Order'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { ArrowLeftRight, Pencil } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
 import { Button } from '@/components/ui/button'
@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ProductPicker, type PickedProductLine } from '@/components/ProductPicker'
 import { toast } from 'sonner'
 import type { Warehouse } from '@/types/inventory'
 
@@ -19,12 +20,9 @@ export function WarehousesView({ inv }: Props) {
   const [transferOpen, setTransferOpen] = useState(false)
   const [editing, setEditing] = useState<Warehouse | null>(null)
   const [form, setForm] = useState({ name: '', location: '', color: '#14b8a6' })
-  const [transfer, setTransfer] = useState({
-    itemId: '',
-    fromWarehouseId: '',
-    toWarehouseId: '',
-    quantity: '1',
-  })
+  const [fromWarehouseId, setFromWarehouseId] = useState('')
+  const [toWarehouseId, setToWarehouseId] = useState('')
+  const [lines, setLines] = useState<PickedProductLine[]>([])
   const [saving, setSaving] = useState(false)
 
   const sorted = [...warehouses].sort((a, b) => a.sortOrder - b.sortOrder)
@@ -35,11 +33,11 @@ export function WarehousesView({ inv }: Props) {
       0
     )
 
-  const selectedItem = allItems.find((i) => i.id === transfer.itemId)
-  const availableFrom = useMemo(() => {
-    if (!selectedItem || !transfer.fromWarehouseId) return 0
-    return selectedItem.stock.find((s) => s.warehouseId === transfer.fromWarehouseId)?.quantity ?? 0
-  }, [selectedItem, transfer.fromWarehouseId])
+  const getAvailableQty = (itemId: string) => {
+    if (!fromWarehouseId) return undefined
+    const item = allItems.find((i) => i.id === itemId)
+    return item?.stock.find((s) => s.warehouseId === fromWarehouseId)?.quantity ?? 0
+  }
 
   const handleEdit = (w: Warehouse) => {
     setEditing(w)
@@ -63,44 +61,50 @@ export function WarehousesView({ inv }: Props) {
   }
 
   const openTransfer = () => {
-    setTransfer({
-      itemId: '',
-      fromWarehouseId: sorted[0]?.id ?? '',
-      toWarehouseId: sorted[1]?.id ?? '',
-      quantity: '1',
-    })
+    setFromWarehouseId(sorted[0]?.id ?? '')
+    setToWarehouseId(sorted[1]?.id ?? '')
+    setLines([])
     setTransferOpen(true)
   }
 
   const handleTransfer = async () => {
-    const qty = Number(transfer.quantity)
-    if (!transfer.itemId || !transfer.fromWarehouseId || !transfer.toWarehouseId) {
-      toast.error('Select product and both warehouses')
+    if (!fromWarehouseId || !toWarehouseId) {
+      toast.error('Select source and destination warehouses')
       return
     }
-    if (transfer.fromWarehouseId === transfer.toWarehouseId) {
+    if (fromWarehouseId === toWarehouseId) {
       toast.error('Choose two different warehouses')
       return
     }
-    if (!qty || qty <= 0) {
-      toast.error('Enter a valid quantity')
+    const validLines = lines.filter((l) => Number(l.quantity) > 0)
+    if (validLines.length === 0) {
+      toast.error('Add at least one product with quantity')
       return
     }
-    if (qty > availableFrom) {
-      toast.error(`Only ${availableFrom} available in source warehouse`)
-      return
+    for (const line of validLines) {
+      const available = getAvailableQty(line.itemId) ?? 0
+      if (Number(line.quantity) > available) {
+        toast.error(`${line.itemSku}: only ${available} available in source warehouse`)
+        return
+      }
     }
     setSaving(true)
     try {
-      await transferStock({
-        itemId: transfer.itemId,
-        fromWarehouseId: transfer.fromWarehouseId,
-        toWarehouseId: transfer.toWarehouseId,
-        quantity: qty,
-      })
-      toast.success('Stock transferred')
-      setTransferOpen(false)
+      for (const line of validLines) {
+        await transferStock(
+          {
+            itemId: line.itemId,
+            fromWarehouseId,
+            toWarehouseId,
+            quantity: Number(line.quantity),
+          },
+          { refresh: false }
+        )
+      }
       await refresh()
+      toast.success(`Transferred ${validLines.length} product${validLines.length > 1 ? 's' : ''}`)
+      setTransferOpen(false)
+      setLines([])
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Transfer failed')
     } finally {
@@ -191,78 +195,49 @@ export function WarehousesView({ inv }: Props) {
       </Dialog>
 
       <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>Transfer Stock</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label>Product</Label>
-              <Select
-                value={transfer.itemId}
-                onValueChange={(v) => setTransfer((p) => ({ ...p, itemId: v }))}
-              >
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="Select product" />
-                </SelectTrigger>
-                <SelectContent>
-                  {allItems.map((item) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      {item.name} ({item.sku})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <div className="space-y-3 overflow-y-auto pr-1 flex-1">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>From warehouse</Label>
+                <Select value={fromWarehouseId} onValueChange={setFromWarehouseId}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="Source" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sorted.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>To warehouse</Label>
+                <Select value={toWarehouseId} onValueChange={setToWarehouseId}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="Destination" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sorted.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div>
-              <Label>From warehouse</Label>
-              <Select
-                value={transfer.fromWarehouseId}
-                onValueChange={(v) => setTransfer((p) => ({ ...p, fromWarehouseId: v }))}
-              >
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="Source" />
-                </SelectTrigger>
-                <SelectContent>
-                  {sorted.map((w) => (
-                    <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {transfer.itemId && transfer.fromWarehouseId && (
-                <p className="text-xs text-muted-foreground mt-1">Available: {availableFrom}</p>
-              )}
-            </div>
-            <div>
-              <Label>To warehouse</Label>
-              <Select
-                value={transfer.toWarehouseId}
-                onValueChange={(v) => setTransfer((p) => ({ ...p, toWarehouseId: v }))}
-              >
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="Destination" />
-                </SelectTrigger>
-                <SelectContent>
-                  {sorted.map((w) => (
-                    <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Quantity</Label>
-              <Input
-                type="number"
-                min="1"
-                value={transfer.quantity}
-                onChange={(e) => setTransfer((p) => ({ ...p, quantity: e.target.value }))}
-                className="mt-1"
-              />
-            </div>
+            <ProductPicker
+              items={allItems}
+              lines={lines}
+              onChange={setLines}
+              getAvailableQty={getAvailableQty}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setTransferOpen(false)}>Cancel</Button>
-            <Button onClick={handleTransfer} disabled={saving}>
+            <Button onClick={handleTransfer} disabled={saving || lines.length === 0}>
               {saving ? 'Transferring...' : 'Transfer'}
             </Button>
           </DialogFooter>
