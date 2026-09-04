@@ -86,6 +86,25 @@ async def receive_stock(body: StockReceiveRequest, db: AsyncSession = Depends(ge
 
 @router.post("/transfer")
 async def transfer_stock(body: StockTransferRequest, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    if body.quantity <= 0:
+        raise HTTPException(status_code=400, detail="Transfer quantity must be positive")
+    if body.from_warehouse_id == body.to_warehouse_id:
+        raise HTTPException(status_code=400, detail="Source and destination warehouses must differ")
+
+    result = await db.execute(
+        select(WarehouseStock).where(
+            WarehouseStock.item_id == body.item_id,
+            WarehouseStock.warehouse_id == body.from_warehouse_id,
+        )
+    )
+    source = result.scalar_one_or_none()
+    available = source.quantity if source else 0
+    if available < body.quantity:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient stock in source warehouse ({available} available)",
+        )
+
     await _apply_delta(db, body.item_id, body.from_warehouse_id, -body.quantity)
     await _apply_delta(db, body.item_id, body.to_warehouse_id, body.quantity)
     tx_out = InventoryTransaction(
