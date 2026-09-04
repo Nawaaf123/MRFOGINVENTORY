@@ -8,10 +8,15 @@ from typing import Any, Optional
 from uuid import UUID
 
 
+# Ledger sign rules
 POSITIVE_TYPES = frozenset({"receive", "transfer_in", "order_cancelled"})
 NEGATIVE_TYPES = frozenset({"sale", "transfer_out"})
-# Stored as already-signed deltas in our DB
 SIGNED_AS_IS = frozenset({"opening_balance", "manual_adjust", "adjust"})
+
+# Ops report buckets (order_cancelled is Returned, not Received)
+RECEIVED_TYPES = frozenset({"receive", "transfer_in"})
+SOLD_TYPES = frozenset({"sale", "transfer_out"})
+RETURNED_TYPES = frozenset({"order_cancelled"})
 
 
 def signed_quantity(entry_type: str, quantity: int) -> int:
@@ -22,7 +27,6 @@ def signed_quantity(entry_type: str, quantity: int) -> int:
         return -abs(quantity)
     if entry_type == "implied_opening":
         return quantity
-    # opening_balance / manual_adjust / adjust — already signed
     return quantity
 
 
@@ -47,6 +51,7 @@ class WarehouseBreakdown:
     warehouse_name: str
     received: int = 0
     sold: int = 0
+    returned: int = 0
     remaining: int = 0
 
 
@@ -60,6 +65,7 @@ class ItemSummary:
     current_stock: int
     received: int
     sold: int
+    returned: int
     remaining: int
     implied_opening: int
     warehouse_breakdown: list[WarehouseBreakdown] = field(default_factory=list)
@@ -75,6 +81,7 @@ class ItemSummary:
             "current_stock": self.current_stock,
             "received": self.received,
             "sold": self.sold,
+            "returned": self.returned,
             "remaining": self.remaining,
             "implied_opening": self.implied_opening,
             "warehouse_breakdown": [
@@ -83,6 +90,7 @@ class ItemSummary:
                     "warehouse_name": w.warehouse_name,
                     "received": w.received,
                     "sold": w.sold,
+                    "returned": w.returned,
                     "remaining": w.remaining,
                 }
                 for w in self.warehouse_breakdown
@@ -106,19 +114,23 @@ class ItemSummary:
         }
 
 
-def _accumulate_totals(received: int, sold: int, entry_type: str, signed: int) -> tuple[int, int]:
+def _accumulate_totals(
+    received: int, sold: int, returned: int, entry_type: str, signed: int
+) -> tuple[int, int, int]:
     if entry_type in ("opening_balance", "implied_opening"):
-        return received, sold
-    if entry_type in POSITIVE_TYPES:
-        return received + abs(signed), sold
-    if entry_type in NEGATIVE_TYPES:
-        return received, sold + abs(signed)
+        return received, sold, returned
+    if entry_type in RECEIVED_TYPES:
+        return received + abs(signed), sold, returned
+    if entry_type in RETURNED_TYPES:
+        return received, sold, returned + abs(signed)
+    if entry_type in SOLD_TYPES:
+        return received, sold + abs(signed), returned
     if entry_type in SIGNED_AS_IS:
         if signed > 0:
-            return received + signed, sold
+            return received + signed, sold, returned
         if signed < 0:
-            return received, sold + abs(signed)
-    return received, sold
+            return received, sold + abs(signed), returned
+    return received, sold, returned
 
 
 def build_item_summary(
@@ -137,7 +149,7 @@ def build_item_summary(
     """
     stocks: [{warehouse_id, warehouse_name, quantity}]
     transactions: [{id, type, quantity, created_at, warehouse_id, warehouse_name, bol_number, ...}]
-    order_lines: non-cancelled sale lines [{id, quantity, created_at, warehouse_id, warehouse_name, shop_name}]
+    order_lines: ALL order lines including cancelled (as sales); cancels also appear as order_cancelled txs
     """
     warehouses = warehouses or {}
 
@@ -178,6 +190,11 @@ def build_item_summary(
     for line in order_lines:
         if warehouse_filter and str(line["warehouse_id"]) != str(warehouse_filter):
             continue
+        shop = line.get("shop_name") or ""
+        if line.get("order_status") == "cancelled":
+            source = f"{shop} (cancelled)" if shop else "Sale (cancelled)"
+        else:
+            source = shop or None
         raw_entries.append(
             {
                 "id": str(line["id"]),
@@ -186,7 +203,7 @@ def build_item_summary(
                 "date": line["created_at"],
                 "warehouse_id": str(line["warehouse_id"]) if line.get("warehouse_id") else None,
                 "warehouse_name": line.get("warehouse_name") or wh_name(line.get("warehouse_id")),
-                "source": line.get("shop_name"),
+                "source": source,
                 "bol_number": None,
                 "bol_document_url": None,
             }
@@ -204,8 +221,11 @@ def build_item_summary(
 
     received = 0
     sold = 0
+    returned = 0
     for e in signed_entries:
-        received, sold = _accumulate_totals(received, sold, e["type"], e["signed_quantity"])
+        received, sold, returned = _accumulate_totals(
+            received, sold, returned, e["type"], e["signed_quantity"]
+        )
 
     running = implied_opening
     ledger: list[LedgerEntry] = []
@@ -243,10 +263,8 @@ def build_item_summary(
             )
         )
 
-    # Newest first for UI
     ledger.reverse()
 
-    # Per-warehouse breakdown (always across all warehouses for the item)
     breakdown_map: dict[str, WarehouseBreakdown] = {}
     for s in stocks:
         wid = str(s["warehouse_id"])
@@ -256,7 +274,6 @@ def build_item_summary(
             remaining=int(s["quantity"]),
         )
 
-    # Build unfiltered entries for breakdown received/sold
     all_for_breakdown: list[tuple[str, str, int]] = []
     for t in transactions:
         wid = str(t["warehouse_id"])
@@ -275,8 +292,8 @@ def build_item_summary(
                 remaining=0,
             )
         bd = breakdown_map[wid]
-        r, s = _accumulate_totals(bd.received, bd.sold, etype, signed)
-        bd.received, bd.sold = r, s
+        r, s, ret = _accumulate_totals(bd.received, bd.sold, bd.returned, etype, signed)
+        bd.received, bd.sold, bd.returned = r, s, ret
 
     return ItemSummary(
         item_id=str(item_id),
@@ -287,6 +304,7 @@ def build_item_summary(
         current_stock=current_stock,
         received=received,
         sold=sold,
+        returned=returned,
         remaining=current_stock,
         implied_opening=implied_opening,
         warehouse_breakdown=sorted(breakdown_map.values(), key=lambda w: w.warehouse_name),

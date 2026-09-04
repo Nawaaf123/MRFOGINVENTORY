@@ -124,7 +124,6 @@ async def stock_summary(
     orders_q = (
         select(Order)
         .options(selectinload(Order.items).joinedload(OrderItem.warehouse))
-        .where(Order.status != "cancelled")
     )
     orders = (await db.execute(orders_q)).scalars().unique().all()
 
@@ -158,6 +157,7 @@ async def stock_summary(
                     "warehouse_id": oi.warehouse_id,
                     "warehouse_name": oi.warehouse.name if oi.warehouse else warehouse_names.get(str(oi.warehouse_id)),
                     "shop_name": order.shop_name,
+                    "order_status": order.status,
                 }
             )
 

@@ -32,6 +32,7 @@ interface WarehouseBreakdown {
   warehouseName: string
   received: number
   sold: number
+  returned: number
   remaining: number
 }
 
@@ -44,6 +45,7 @@ interface SummaryItem {
   currentStock: number
   received: number
   sold: number
+  returned: number
   remaining: number
   impliedOpening: number
   warehouseBreakdown: WarehouseBreakdown[]
@@ -64,7 +66,7 @@ const typeLabels: Record<string, string> = {
   implied_opening: 'Implied opening',
   manual_adjust: 'Manual adjust',
   adjust: 'Adjust',
-  order_cancelled: 'Order cancelled',
+  order_cancelled: 'Returned',
 }
 
 const typeColors: Record<string, string> = {
@@ -126,9 +128,10 @@ export function StockSummaryView({ inv }: Props) {
         (acc, i) => ({
           received: acc.received + i.received,
           sold: acc.sold + i.sold,
+          returned: acc.returned + (i.returned ?? 0),
           remaining: acc.remaining + i.remaining,
         }),
-        { received: 0, sold: 0, remaining: 0 }
+        { received: 0, sold: 0, returned: 0, remaining: 0 }
       ),
     [items]
   )
@@ -174,7 +177,7 @@ export function StockSummaryView({ inv }: Props) {
       </div>
 
       <div className="flex-1 overflow-auto p-6 space-y-6">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Received</CardTitle>
@@ -189,6 +192,15 @@ export function StockSummaryView({ inv }: Props) {
             </CardHeader>
             <CardContent>
               <p className="text-2xl font-bold text-blue-700">{totals.sold}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Returned</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold text-amber-700">{totals.returned}</p>
+              <p className="text-xs text-muted-foreground mt-1">Cancelled orders</p>
             </CardContent>
           </Card>
           <Card>
@@ -215,13 +227,14 @@ export function StockSummaryView({ inv }: Props) {
                     <TableHead>Product</TableHead>
                     <TableHead className="text-right">Received</TableHead>
                     <TableHead className="text-right">Sold</TableHead>
+                    <TableHead className="text-right">Returned</TableHead>
                     <TableHead className="text-right">Remaining</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {items.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
                         No products found
                       </TableCell>
                     </TableRow>
@@ -252,11 +265,12 @@ export function StockSummaryView({ inv }: Props) {
                           </TableCell>
                           <TableCell className="text-right text-green-700 font-medium">{item.received}</TableCell>
                           <TableCell className="text-right text-blue-700 font-medium">{item.sold}</TableCell>
+                          <TableCell className="text-right text-amber-700 font-medium">{item.returned ?? 0}</TableCell>
                           <TableCell className="text-right font-semibold">{item.remaining}</TableCell>
                         </TableRow>
                         {open && (
                           <TableRow>
-                            <TableCell colSpan={6} className="bg-muted/30 p-4">
+                            <TableCell colSpan={7} className="bg-muted/30 p-4">
                               <div className="space-y-4">
                                 {warehouseId === 'all' && item.warehouseBreakdown.length > 0 && (
                                   <div>
@@ -266,7 +280,7 @@ export function StockSummaryView({ inv }: Props) {
                                         <div key={w.warehouseId} className="rounded-md border bg-background p-3 text-sm">
                                           <p className="font-medium">{w.warehouseName}</p>
                                           <p className="text-muted-foreground text-xs mt-1">
-                                            Rec {w.received} · Sold {w.sold} · Rem {w.remaining}
+                                            Rec {w.received} · Sold {w.sold} · Ret {w.returned ?? 0} · Rem {w.remaining}
                                           </p>
                                         </div>
                                       ))}

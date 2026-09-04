@@ -210,6 +210,7 @@ class StockSummaryWarehouseBreakdown(BaseModel):
     warehouse_name: str
     received: int
     sold: int
+    returned: int = 0
     remaining: int
 
 
@@ -222,6 +223,7 @@ class StockSummaryItem(BaseModel):
     current_stock: int
     received: int
     sold: int
+    returned: int = 0
     remaining: int
     implied_opening: int
     warehouse_breakdown: List[StockSummaryWarehouseBreakdown] = []
