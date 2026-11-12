@@ -22,9 +22,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { ProductPicker, type PickedProductLine } from '@/components/ProductPicker'
+import { OrderComposer, type OrderLineDraft } from '@/components/OrderComposer'
 import { cn, formatCurrency } from '@/lib/utils'
 import { downloadInvoice } from '@/lib/invoice'
 import { downloadPickSheet, previewPickSheet } from '@/lib/pickSheet'
@@ -218,15 +217,10 @@ export function OrdersView({ inv }: Props) {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Order | null>(null)
   const [shopName, setShopName] = useState('')
-  const [warehouseId, setWarehouseId] = useState('')
   const [shippingFee, setShippingFee] = useState('0')
-  const [lines, setLines] = useState<PickedProductLine[]>([])
+  const [lines, setLines] = useState<OrderLineDraft[]>([])
   const [saving, setSaving] = useState(false)
 
-  const sortedWholesalers = useMemo(
-    () => [...wholesalers].sort((a, b) => a.name.localeCompare(b.name)),
-    [wholesalers]
-  )
   const sortedWarehouses = useMemo(
     () => [...warehouses].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
     [warehouses]
@@ -289,16 +283,16 @@ export function OrdersView({ inv }: Props) {
     return Object.values(map).sort((a, b) => b.cases - a.cases)
   }, [filtered])
 
-  const getAvailableQty = (itemId: string) => {
-    if (!warehouseId) return undefined
-    const item = allItems.find((i) => i.id === itemId)
-    return item?.stock.find((s) => s.warehouseId === warehouseId)?.quantity ?? 0
+  const reservedQty = (itemId: string, warehouseId: string) => {
+    if (!editing) return 0
+    return editing.items
+      .filter((i) => i.itemId === itemId && i.warehouseId === warehouseId)
+      .reduce((s, i) => s + i.quantity, 0)
   }
 
   const openCreate = () => {
     setEditing(null)
     setShopName('')
-    setWarehouseId(sortedWarehouses[0]?.id ?? '')
     setShippingFee('0')
     setLines([])
     setOpen(true)
@@ -307,14 +301,13 @@ export function OrdersView({ inv }: Props) {
   const openEdit = (order: Order) => {
     setEditing(order)
     setShopName(order.shopName)
-    const firstWh = order.items[0]?.warehouseId || sortedWarehouses[0]?.id || ''
-    setWarehouseId(firstWh)
     setShippingFee(String(order.shippingFee || 0))
     setLines(
       order.items.map((i) => ({
         itemId: i.itemId,
         itemName: i.itemName,
         itemSku: i.itemSku,
+        warehouseId: i.warehouseId || sortedWarehouses[0]?.id || '',
         quantity: String(i.quantity),
         unitPrice: String(i.unitPrice),
       }))
@@ -333,15 +326,15 @@ export function OrdersView({ inv }: Props) {
 
   const handleSave = async () => {
     const items = lines
-      .filter((l) => Number(l.quantity) > 0)
+      .filter((l) => Number(l.quantity) > 0 && l.warehouseId)
       .map((l) => ({
         itemId: l.itemId,
-        warehouseId,
+        warehouseId: l.warehouseId,
         quantity: Number(l.quantity),
         unitPrice: Number(l.unitPrice) || 0,
       }))
-    if (!shopName.trim() || !warehouseId || items.length === 0) {
-      toast.error('Select wholesaler, warehouse, and at least one product')
+    if (!shopName.trim() || items.length === 0) {
+      toast.error('Select wholesaler and at least one product')
       return
     }
     if (!wholesalers.some((w) => w.name === shopName.trim())) {
@@ -349,15 +342,13 @@ export function OrdersView({ inv }: Props) {
       return
     }
     for (const line of items) {
-      const available = getAvailableQty(line.itemId) ?? 0
-      const reserved = editing
-        ? editing.items
-            .filter((i) => i.itemId === line.itemId && i.warehouseId === warehouseId)
-            .reduce((s, i) => s + i.quantity, 0)
-        : 0
-      if (line.quantity > available + reserved) {
+      const item = allItems.find((i) => i.id === line.itemId)
+      const onHand = item?.stock.find((s) => s.warehouseId === line.warehouseId)?.quantity ?? 0
+      const reserved = reservedQty(line.itemId, line.warehouseId)
+      if (line.quantity > onHand + reserved) {
         const picked = lines.find((l) => l.itemId === line.itemId)
-        toast.error(`${picked?.itemSku ?? 'Item'}: only ${available + reserved} available`)
+        const wh = warehouses.find((w) => w.id === line.warehouseId)?.name ?? 'warehouse'
+        toast.error(`${picked?.itemSku ?? 'Item'}: only ${onHand + reserved} available at ${wh}`)
         return
       }
     }
@@ -611,69 +602,34 @@ export function OrdersView({ inv }: Props) {
         setOpen(v)
         if (!v) setEditing(null)
       }}>
-        <DialogContent className="max-w-xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-3xl max-h-[92vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle>{editing ? 'Edit Order' : 'New Order'}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Store className="h-5 w-5 text-rose-600" />
+              {editing ? 'Edit Order' : 'Create Order'}
+            </DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 overflow-y-auto pr-1 flex-1">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Wholesaler</Label>
-                <Select value={shopName} onValueChange={setShopName}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder={sortedWholesalers.length ? 'Select wholesaler' : 'No wholesalers yet'} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sortedWholesalers.map((w) => (
-                      <SelectItem key={w.id} value={w.name}>
-                        {w.name}
-                        {w.contactPerson ? ` · ${w.contactPerson}` : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {sortedWholesalers.length === 0 && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Add wholesalers on the Wholesalers page first.
-                  </p>
-                )}
-              </div>
-              <div>
-                <Label>Ship from warehouse</Label>
-                <Select value={warehouseId} onValueChange={setWarehouseId}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="Warehouse" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sortedWarehouses.map((w) => (
-                      <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div>
-              <Label>Shipping fee</Label>
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={shippingFee}
-                onChange={(e) => setShippingFee(e.target.value)}
-                className="mt-1"
-              />
-            </div>
-            <ProductPicker
+          <div className="overflow-y-auto pr-1 flex-1">
+            <OrderComposer
+              wholesalers={wholesalers}
+              warehouses={warehouses}
               items={allItems}
+              shopName={shopName}
+              onShopNameChange={setShopName}
+              shippingFee={shippingFee}
+              onShippingFeeChange={setShippingFee}
               lines={lines}
               onChange={setLines}
-              showUnitPrice
-              getAvailableQty={getAvailableQty}
+              reservedQty={reservedQty}
             />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={saving || lines.length === 0}>
+            <Button
+              className="bg-rose-600 hover:bg-rose-700 text-white"
+              onClick={handleSave}
+              disabled={saving || lines.length === 0}
+            >
               {saving ? 'Saving...' : editing ? 'Save Changes' : 'Create Order'}
             </Button>
           </DialogFooter>
