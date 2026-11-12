@@ -21,6 +21,7 @@ def _enrich(tx: InventoryTransaction) -> dict:
         "quantity": tx.quantity,
         "bol_number": tx.bol_number,
         "bol_document_url": tx.bol_document_url,
+        "note": tx.note,
         "type": tx.type,
         "created_at": tx.created_at,
         "item_name": tx.item.name if tx.item else None,

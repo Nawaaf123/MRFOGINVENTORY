@@ -26,11 +26,15 @@ export function InventoryHistoryView({ inv }: Props) {
   const { transactions, loading } = inv
   const [search, setSearch] = useState('')
 
-  const filtered = transactions.filter((t) =>
-    t.itemName.toLowerCase().includes(search.toLowerCase()) ||
-    t.bolNumber.toLowerCase().includes(search.toLowerCase()) ||
-    t.warehouseName.toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = transactions.filter((t) => {
+    const q = search.toLowerCase()
+    return (
+      t.itemName.toLowerCase().includes(q) ||
+      t.bolNumber.toLowerCase().includes(q) ||
+      (t.note || '').toLowerCase().includes(q) ||
+      t.warehouseName.toLowerCase().includes(q)
+    )
+  })
 
   if (loading) return <div className="p-6 text-muted-foreground">Loading...</div>
 
@@ -52,7 +56,7 @@ export function InventoryHistoryView({ inv }: Props) {
               <TableHead>Item</TableHead>
               <TableHead>Warehouse</TableHead>
               <TableHead>Qty</TableHead>
-              <TableHead>BOL</TableHead>
+              <TableHead>Source / BOL</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -80,8 +84,14 @@ export function InventoryHistoryView({ inv }: Props) {
                   {t.quantity > 0 ? '+' : ''}{t.quantity}
                 </TableCell>
                 <TableCell>
-                  <div className="flex items-center gap-1">
-                    <Badge variant="outline" className="font-mono text-xs">{t.bolNumber}</Badge>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {(t.note || t.bolNumber) ? (
+                      <Badge variant="outline" className="font-mono text-xs max-w-[220px] truncate">
+                        {t.note || t.bolNumber}
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground text-sm">—</span>
+                    )}
                     {t.bolDocumentUrl && (
                       <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => openBolDocument(t.bolDocumentUrl!)}>
                         <ExternalLink className="h-3 w-3" />

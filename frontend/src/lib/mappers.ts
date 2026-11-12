@@ -67,6 +67,7 @@ export function mapTransaction(raw: Raw): InventoryTransaction {
     quantity: Number(raw.quantity ?? 0),
     bolNumber: String(raw.bolNumber ?? ''),
     bolDocumentUrl: (raw.bolDocumentUrl as string | null) ?? null,
+    note: (raw.note as string | null) ?? null,
     date: new Date(String(raw.date ?? raw.createdAt ?? Date.now())),
     type: raw.type as InventoryTransaction['type'],
   }

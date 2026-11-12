@@ -159,6 +159,8 @@ async def stock_summary(
                 "warehouse_name": t.warehouse.name if t.warehouse else warehouse_names.get(str(t.warehouse_id)),
                 "bol_number": t.bol_number,
                 "bol_document_url": t.bol_document_url,
+                "note": t.note,
+                "source": t.note,
             }
         )
 
@@ -301,6 +303,17 @@ async def transfer_stock(body: StockTransferRequest, db: AsyncSession = Depends(
             detail=f"Insufficient stock in source warehouse ({available} available)",
         )
 
+    wh_rows = (
+        await db.execute(
+            select(Warehouse).where(
+                Warehouse.id.in_([body.from_warehouse_id, body.to_warehouse_id])
+            )
+        )
+    ).scalars().all()
+    wh_names = {w.id: w.name for w in wh_rows}
+    from_name = wh_names.get(body.from_warehouse_id, "Source")
+    to_name = wh_names.get(body.to_warehouse_id, "Destination")
+
     await _apply_delta(db, body.item_id, body.from_warehouse_id, -body.quantity)
     await _apply_delta(db, body.item_id, body.to_warehouse_id, body.quantity)
     db.add(
@@ -309,6 +322,7 @@ async def transfer_stock(body: StockTransferRequest, db: AsyncSession = Depends(
             warehouse_id=body.from_warehouse_id,
             quantity=-body.quantity,
             type="transfer_out",
+            note=f"To {to_name}",
         )
     )
     db.add(
@@ -317,6 +331,7 @@ async def transfer_stock(body: StockTransferRequest, db: AsyncSession = Depends(
             warehouse_id=body.to_warehouse_id,
             quantity=body.quantity,
             type="transfer_in",
+            note=f"From {from_name}",
         )
     )
     await db.commit()
@@ -345,6 +360,17 @@ async def transfer_stock_batch(body: StockTransferBatchRequest, db: AsyncSession
                 detail=f"Insufficient stock for item {item_id} ({available} available, need {qty})",
             )
 
+    wh_rows = (
+        await db.execute(
+            select(Warehouse).where(
+                Warehouse.id.in_([body.from_warehouse_id, body.to_warehouse_id])
+            )
+        )
+    ).scalars().all()
+    wh_names = {w.id: w.name for w in wh_rows}
+    from_name = wh_names.get(body.from_warehouse_id, "Source")
+    to_name = wh_names.get(body.to_warehouse_id, "Destination")
+
     for line in body.items:
         await _apply_delta(db, line.item_id, body.from_warehouse_id, -line.quantity)
         await _apply_delta(db, line.item_id, body.to_warehouse_id, line.quantity)
@@ -354,6 +380,7 @@ async def transfer_stock_batch(body: StockTransferBatchRequest, db: AsyncSession
                 warehouse_id=body.from_warehouse_id,
                 quantity=-line.quantity,
                 type="transfer_out",
+                note=f"To {to_name}",
             )
         )
         db.add(
@@ -362,6 +389,7 @@ async def transfer_stock_batch(body: StockTransferBatchRequest, db: AsyncSession
                 warehouse_id=body.to_warehouse_id,
                 quantity=line.quantity,
                 type="transfer_in",
+                note=f"From {from_name}",
             )
         )
     await db.commit()

@@ -110,6 +110,7 @@ class InventoryTransaction(Base):
     quantity = Column(Integer, nullable=False)
     bol_number = Column(String, nullable=True)
     bol_document_url = Column(String, nullable=True)
+    note = Column(String, nullable=True)  # shop name, transfer route, cancel reason, etc.
     type = Column(SAEnum(*TRANSACTION_TYPES, name="transaction_type"), nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 

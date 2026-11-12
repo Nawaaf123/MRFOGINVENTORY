@@ -277,6 +277,7 @@ class TransactionOut(BaseModel):
     quantity: int
     bol_number: Optional[str]
     bol_document_url: Optional[str]
+    note: Optional[str] = None
     type: str
     created_at: datetime
     item_name: Optional[str] = None

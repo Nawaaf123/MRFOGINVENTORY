@@ -194,7 +194,7 @@ def build_item_summary(
                 "date": t["created_at"],
                 "warehouse_id": str(t["warehouse_id"]) if t.get("warehouse_id") else None,
                 "warehouse_name": t.get("warehouse_name") or wh_name(t.get("warehouse_id")),
-                "source": t.get("bol_number") or t.get("source"),
+                "source": t.get("note") or t.get("source") or t.get("bol_number"),
                 "bol_number": t.get("bol_number"),
                 "bol_document_url": t.get("bol_document_url"),
             }

@@ -105,6 +105,7 @@ async def create_order(body: OrderCreate, db: AsyncSession = Depends(get_db), _=
                 warehouse_id=oi.warehouse_id,
                 quantity=-oi.quantity,
                 type="sale",
+                note=body.shop_name.strip() or None,
             )
         )
 
@@ -142,6 +143,8 @@ async def update_order(order_id: UUID, body: OrderUpdate, db: AsyncSession = Dep
     if body.shipping_fee is not None:
         order.shipping_fee = body.shipping_fee
 
+    shop_label = (order.shop_name or "").strip() or None
+
     if body.items is not None:
         # Return stock from old items and reverse their sale ledger rows
         for old_oi in order.items:
@@ -152,6 +155,7 @@ async def update_order(order_id: UUID, body: OrderUpdate, db: AsyncSession = Dep
                     warehouse_id=old_oi.warehouse_id,
                     quantity=old_oi.quantity,  # positive = void previous sale
                     type="sale",
+                    note=f"{shop_label} (edit void)" if shop_label else "Order edit void",
                 )
             )
 
@@ -177,6 +181,7 @@ async def update_order(order_id: UUID, body: OrderUpdate, db: AsyncSession = Dep
                     warehouse_id=new_oi.warehouse_id,
                     quantity=-new_oi.quantity,
                     type="sale",
+                    note=shop_label,
                 )
             )
 
@@ -237,6 +242,11 @@ async def _cancel(db: AsyncSession, order_id: UUID, reason: str | None = None):
     order.cancelled_at = datetime.now(timezone.utc)
     order.cancelled_reason = reason
 
+    shop_label = (order.shop_name or "").strip() or "Order"
+    cancel_note = f"{shop_label} (cancelled)"
+    if reason and reason.strip():
+        cancel_note = f"{cancel_note}: {reason.strip()}"
+
     for oi in order.items:
         await _apply_delta(db, oi.item_id, oi.warehouse_id, oi.quantity)
         tx = InventoryTransaction(
@@ -244,6 +254,7 @@ async def _cancel(db: AsyncSession, order_id: UUID, reason: str | None = None):
             warehouse_id=oi.warehouse_id,
             quantity=oi.quantity,
             type="order_cancelled",
+            note=cancel_note,
         )
         db.add(tx)
 
