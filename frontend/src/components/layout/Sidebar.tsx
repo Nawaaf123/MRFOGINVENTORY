@@ -75,7 +75,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
           MF
         </div>
         <div>
-          <p className="font-bold text-sm tracking-wide text-sidebar-foreground">MR FOG</p>
+          <p className="font-bold text-sm tracking-wide text-sidebar-foreground">Mr. Fog</p>
           <p className="text-xs text-sidebar-foreground/60">Inventory System</p>
         </div>
       </div>

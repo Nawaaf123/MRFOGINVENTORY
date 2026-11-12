@@ -24,7 +24,7 @@ export function mapWarehouse(raw: Raw): Warehouse {
     id: String(raw.id),
     name: String(raw.name ?? ''),
     location: String(raw.location ?? ''),
-    color: String(raw.color ?? '#14b8a6'),
+    color: String(raw.color ?? '#c41e2a'),
     sortOrder: Number(raw.sortOrder ?? 0),
   }
 }

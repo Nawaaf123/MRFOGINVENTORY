@@ -16,7 +16,7 @@ export function WarehousesView({ inv }: Props) {
   const { warehouses, allItems, updateWarehouse, loading } = inv
   const [editOpen, setEditOpen] = useState(false)
   const [editing, setEditing] = useState<Warehouse | null>(null)
-  const [form, setForm] = useState({ name: '', location: '', color: '#14b8a6' })
+  const [form, setForm] = useState({ name: '', location: '', color: '#c41e2a' })
 
   const sorted = [...warehouses].sort((a, b) => a.sortOrder - b.sortOrder)
 
@@ -28,7 +28,7 @@ export function WarehousesView({ inv }: Props) {
 
   const handleEdit = (w: Warehouse) => {
     setEditing(w)
-    setForm({ name: w.name, location: w.location, color: w.color || '#14b8a6' })
+    setForm({ name: w.name, location: w.location, color: w.color || '#c41e2a' })
     setEditOpen(true)
   }
 
@@ -74,7 +74,7 @@ export function WarehousesView({ inv }: Props) {
               <CardContent className="p-4 flex items-center gap-4">
                 <div
                   className="h-4 w-4 rounded-full shrink-0"
-                  style={{ backgroundColor: w.color || '#14b8a6' }}
+                  style={{ backgroundColor: w.color || '#c41e2a' }}
                 />
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold">{w.name}</p>
