@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, Fragment } from 'react'
 import { format } from 'date-fns'
-import { Search, ChevronDown, ChevronRight } from 'lucide-react'
+import { Search, ChevronDown, ChevronRight, Filter } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
 import { apiGet } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -82,8 +82,10 @@ const typeColors: Record<string, string> = {
 }
 
 export function StockSummaryView({ inv }: Props) {
-  const { warehouses, loading: invLoading } = inv
+  const { warehouses, allItems, loading: invLoading } = inv
   const [warehouseId, setWarehouseId] = useState('all')
+  const [categoryFilter, setCategoryFilter] = useState('all')
+  const [subCategoryFilter, setSubCategoryFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [items, setItems] = useState<SummaryItem[]>([])
@@ -94,6 +96,47 @@ export function StockSummaryView({ inv }: Props) {
   const sortedWarehouses = useMemo(
     () => [...warehouses].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
     [warehouses]
+  )
+
+  const uniqueCategories = useMemo(
+    () =>
+      Array.from(
+        new Set(allItems.map((i) => i.category).filter((c): c is string => Boolean(c?.trim())))
+      ).sort((a, b) => a.localeCompare(b)),
+    [allItems]
+  )
+
+  const uniqueSubCategories = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          allItems
+            .filter((i) => categoryFilter === 'all' || i.category === categoryFilter)
+            .map((i) => i.subCategory)
+            .filter((c): c is string => Boolean(c?.trim()))
+        )
+      ).sort((a, b) => a.localeCompare(b)),
+    [allItems, categoryFilter]
+  )
+
+  const handleCategoryChange = (value: string) => {
+    setCategoryFilter(value)
+    if (value !== 'all' && subCategoryFilter !== 'all') {
+      const stillValid = allItems.some(
+        (i) => i.category === value && i.subCategory === subCategoryFilter
+      )
+      if (!stillValid) setSubCategoryFilter('all')
+    }
+  }
+
+  const filteredItems = useMemo(
+    () =>
+      items.filter((item) => {
+        if (categoryFilter !== 'all' && (item.category || '') !== categoryFilter) return false
+        if (subCategoryFilter !== 'all' && (item.subCategory || '') !== subCategoryFilter) return false
+        return true
+      }),
+    [items, categoryFilter, subCategoryFilter]
   )
 
   useEffect(() => {
@@ -156,7 +199,7 @@ export function StockSummaryView({ inv }: Props) {
 
   const totals = useMemo(
     () =>
-      items.reduce(
+      filteredItems.reduce(
         (acc, i) => ({
           received: acc.received + i.received,
           sold: acc.sold + i.sold,
@@ -165,14 +208,14 @@ export function StockSummaryView({ inv }: Props) {
         }),
         { received: 0, sold: 0, returned: 0, remaining: 0 }
       ),
-    [items]
+    [filteredItems]
   )
 
   const toggle = (id: string) => {
     setExpanded((prev) => {
       const next = prev === id ? null : id
       if (next) {
-        const row = items.find((i) => i.itemId === next)
+        const row = filteredItems.find((i) => i.itemId === next)
         if (!row?.ledger?.length) void loadLedger(next)
       }
       return next
@@ -190,8 +233,8 @@ export function StockSummaryView({ inv }: Props) {
             Forward ledger that closes at live warehouse stock
           </p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
+        <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[180px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search name or SKU..."
@@ -200,12 +243,35 @@ export function StockSummaryView({ inv }: Props) {
               className="pl-9"
             />
           </div>
+          <Select value={categoryFilter} onValueChange={handleCategoryChange}>
+            <SelectTrigger className="w-full sm:w-44">
+              <Filter className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="Category" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Categories</SelectItem>
+              {uniqueCategories.map((c) => (
+                <SelectItem key={c} value={c}>{c}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={subCategoryFilter} onValueChange={setSubCategoryFilter}>
+            <SelectTrigger className="w-full sm:w-52">
+              <SelectValue placeholder="Subcategory" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Subcategories</SelectItem>
+              {uniqueSubCategories.map((c) => (
+                <SelectItem key={c} value={c}>{c}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Select value={warehouseId} onValueChange={setWarehouseId}>
-            <SelectTrigger className="w-full sm:w-56">
+            <SelectTrigger className="w-full sm:w-44">
               <SelectValue placeholder="Warehouse" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All warehouses</SelectItem>
+              <SelectItem value="all">All Warehouses</SelectItem>
               {sortedWarehouses.map((w) => (
                 <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
               ))}
@@ -273,14 +339,14 @@ export function StockSummaryView({ inv }: Props) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {items.length === 0 && (
+                  {filteredItems.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
                         No products found
                       </TableCell>
                     </TableRow>
                   )}
-                  {items.map((item) => {
+                  {filteredItems.map((item) => {
                     const open = expanded === item.itemId
                     return (
                       <Fragment key={item.itemId}>
