@@ -36,9 +36,11 @@ function buildLines(order: Order, catalog: InventoryItem[]): SheetLine[] {
 function drawCheckbox(doc: jsPDF, x: number, y: number, label: string, checked = false) {
   const size = 3.2
   doc.setDrawColor(40)
-  doc.setLineWidth(0.3)
-  doc.rect(x, y - size + 0.6, size, size)
+  doc.setFillColor(255, 255, 255)
+  doc.setLineWidth(0.35)
+  doc.rect(x, y - size + 0.6, size, size, 'FD')
   if (checked) {
+    doc.setTextColor(20)
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(7)
     doc.text('X', x + 0.7, y)
@@ -47,6 +49,12 @@ function drawCheckbox(doc: jsPDF, x: number, y: number, label: string, checked =
   doc.setFontSize(9)
   doc.setTextColor(20)
   doc.text(label, x + size + 1.8, y)
+}
+
+function orderDateLabel(date: Date | string): string {
+  const d = date instanceof Date ? date : new Date(date)
+  if (Number.isNaN(d.getTime())) return ''
+  return format(d, 'M/d/yy')
 }
 
 function drawWaveLogo(doc: jsPDF, cx: number, y: number) {
@@ -169,7 +177,8 @@ function buildDoc(order: Order, catalog: InventoryItem[]): jsPDF {
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(11)
-  doc.text(`Date: ${format(new Date(order.date), 'M/d/yy')}`, left, y)
+  doc.setTextColor(20)
+  doc.text(`Date: ${orderDateLabel(order.date)}`, left, y)
   y += 8
 
   drawCheckbox(doc, left, y, 'Shipping')
@@ -189,10 +198,10 @@ function buildDoc(order: Order, catalog: InventoryItem[]): jsPDF {
 
     for (let i = 0; i < items.length; i += 2) {
       y = ensureSpace(doc, y, rowH + 1)
-      const leftItem = items[i]
-      const rightItem = items[i + 1] ?? null
-      drawProductCell(doc, left, y, colW, rowH, leftItem)
-      drawProductCell(doc, left + colW + gap, y, colW, rowH, rightItem)
+      drawProductCell(doc, left, y, colW, rowH, items[i])
+      if (items[i + 1]) {
+        drawProductCell(doc, left + colW + gap, y, colW, rowH, items[i + 1])
+      }
       y += rowH
     }
 
