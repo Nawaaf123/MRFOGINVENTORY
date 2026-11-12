@@ -413,10 +413,10 @@ export function OrdersView({ inv }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-6 border-b bg-background sticky top-0 z-10 space-y-4">
+      <div className="p-4 pl-16 lg:pl-6 sm:p-6 border-b bg-background sticky top-0 z-10 space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <h1 className="text-2xl font-bold">Orders</h1>
-          <Button size="sm" onClick={openCreate}>
+          <Button className="h-11 px-4 text-base sm:h-9 sm:text-sm" onClick={openCreate}>
             <Plus className="h-4 w-4 mr-1" />
             New Order
           </Button>
@@ -602,14 +602,22 @@ export function OrdersView({ inv }: Props) {
         setOpen(v)
         if (!v) setEditing(null)
       }}>
-        <DialogContent className="max-w-3xl max-h-[92vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Store className="h-5 w-5 text-rose-600" />
+        <DialogContent
+          className={cn(
+            'overflow-hidden !flex flex-col gap-3 p-4 sm:p-6',
+            // Phone / tablet: nearly full-screen for finger order entry
+            'w-[100dvw] max-w-none h-[100dvh] max-h-[100dvh] rounded-none',
+            'sm:w-[min(100vw-1.5rem,48rem)] sm:h-auto sm:max-h-[92vh] sm:rounded-lg',
+            'md:max-w-3xl'
+          )}
+        >
+          <DialogHeader className="shrink-0 pr-8">
+            <DialogTitle className="flex items-center gap-2 text-xl sm:text-lg">
+              <Store className="h-5 w-5 text-primary" />
               {editing ? 'Edit Order' : 'Create Order'}
             </DialogTitle>
           </DialogHeader>
-          <div className="overflow-y-auto pr-1 flex-1">
+          <div className="min-h-0 flex-1 overflow-hidden flex flex-col">
             <OrderComposer
               wholesalers={wholesalers}
               warehouses={warehouses}
@@ -623,10 +631,16 @@ export function OrdersView({ inv }: Props) {
               reservedQty={reservedQty}
             />
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <DialogFooter className="shrink-0 gap-2 border-t pt-3 sm:border-0 sm:pt-0">
             <Button
-              className="bg-rose-600 hover:bg-rose-700 text-white"
+              variant="outline"
+              className="h-12 text-base sm:h-9 sm:text-sm"
+              onClick={() => setOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="h-12 text-base bg-primary hover:bg-primary/90 text-primary-foreground sm:h-9 sm:text-sm"
               onClick={handleSave}
               disabled={saving || lines.length === 0}
             >
