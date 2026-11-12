@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Search, Plus, Filter, Download, ArrowUpDown, Pencil, Trash2, SlidersHorizontal } from 'lucide-react'
+import { Search, Plus, Filter, Download, ArrowUpDown, Pencil, Trash2, SlidersHorizontal, ArrowLeftRight } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,6 +27,11 @@ export function InventoryView({ inv }: Props) {
   const [adjustWarehouseId, setAdjustWarehouseId] = useState('')
   const [adjustLines, setAdjustLines] = useState<PickedProductLine[]>([])
   const [adjustSaving, setAdjustSaving] = useState(false)
+  const [transferOpen, setTransferOpen] = useState(false)
+  const [fromWarehouseId, setFromWarehouseId] = useState('')
+  const [toWarehouseId, setToWarehouseId] = useState('')
+  const [transferLines, setTransferLines] = useState<PickedProductLine[]>([])
+  const [transferSaving, setTransferSaving] = useState(false)
   const [editing, setEditing] = useState<InventoryItem | null>(null)
   const [form, setForm] = useState({
     name: '',
@@ -57,6 +62,7 @@ export function InventoryView({ inv }: Props) {
     updateItem,
     deleteItem,
     adjustStockBatch,
+    transferStockBatch,
   } = inv
 
   const sortedWarehouses = useMemo(
@@ -231,6 +237,60 @@ export function InventoryView({ inv }: Props) {
     }
   }
 
+  const openTransfer = () => {
+    setFromWarehouseId(sortedWarehouses[0]?.id ?? '')
+    setToWarehouseId(sortedWarehouses[1]?.id ?? '')
+    setTransferLines([])
+    setTransferOpen(true)
+  }
+
+  const getTransferAvailable = (itemId: string) => {
+    if (!fromWarehouseId) return undefined
+    const item = allItems.find((i) => i.id === itemId)
+    return item?.stock.find((s) => s.warehouseId === fromWarehouseId)?.quantity ?? 0
+  }
+
+  const handleTransfer = async () => {
+    if (!fromWarehouseId || !toWarehouseId) {
+      toast.error('Select source and destination warehouses')
+      return
+    }
+    if (fromWarehouseId === toWarehouseId) {
+      toast.error('Choose two different warehouses')
+      return
+    }
+    const validLines = transferLines.filter((l) => Number(l.quantity) > 0)
+    if (validLines.length === 0) {
+      toast.error('Add at least one product with quantity')
+      return
+    }
+    for (const line of validLines) {
+      const available = getTransferAvailable(line.itemId) ?? 0
+      if (Number(line.quantity) > available) {
+        toast.error(`${line.itemSku}: only ${available} available in source warehouse`)
+        return
+      }
+    }
+    setTransferSaving(true)
+    try {
+      await transferStockBatch({
+        fromWarehouseId,
+        toWarehouseId,
+        items: validLines.map((line) => ({
+          itemId: line.itemId,
+          quantity: Number(line.quantity),
+        })),
+      })
+      toast.success(`Transferred ${validLines.length} product${validLines.length > 1 ? 's' : ''}`)
+      setTransferOpen(false)
+      setTransferLines([])
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Transfer failed')
+    } finally {
+      setTransferSaving(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="p-6 space-y-4">
@@ -253,6 +313,10 @@ export function InventoryView({ inv }: Props) {
             <Button variant="outline" size="sm" onClick={handleDownload}>
               <Download className="h-4 w-4 mr-1" />
               PDF
+            </Button>
+            <Button variant="outline" size="sm" onClick={openTransfer}>
+              <ArrowLeftRight className="h-4 w-4 mr-1" />
+              Transfer Stock
             </Button>
             <Button variant="outline" size="sm" onClick={openAdjust}>
               <SlidersHorizontal className="h-4 w-4 mr-1" />
@@ -563,6 +627,65 @@ export function InventoryView({ inv }: Props) {
             <Button variant="outline" onClick={() => setAdjustOpen(false)}>Cancel</Button>
             <Button onClick={handleAdjust} disabled={adjustSaving || adjustLines.length === 0}>
               {adjustSaving ? 'Saving...' : 'Save Adjustments'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Transfer Stock</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 overflow-y-auto pr-1 flex-1">
+            <p className="text-sm text-muted-foreground">
+              Move products from one warehouse to another. Available qty is based on the source warehouse.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>From warehouse</Label>
+                <Select
+                  value={fromWarehouseId}
+                  onValueChange={(v) => {
+                    setFromWarehouseId(v)
+                    setTransferLines([])
+                  }}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="Source" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sortedWarehouses.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>To warehouse</Label>
+                <Select value={toWarehouseId} onValueChange={setToWarehouseId}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="Destination" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sortedWarehouses.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <ProductPicker
+              items={allItems}
+              lines={transferLines}
+              onChange={setTransferLines}
+              getAvailableQty={getTransferAvailable}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTransferOpen(false)}>Cancel</Button>
+            <Button onClick={handleTransfer} disabled={transferSaving || transferLines.length === 0}>
+              {transferSaving ? 'Transferring...' : 'Transfer'}
             </Button>
           </DialogFooter>
         </DialogContent>
