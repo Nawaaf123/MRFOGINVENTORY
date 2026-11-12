@@ -51,9 +51,10 @@ function drawCheckbox(doc: jsPDF, x: number, y: number, label: string, checked =
   doc.text(label, x + size + 1.8, y)
 }
 
-function orderDateLabel(date: Date | string): string {
+function orderDateLabel(date: Date | string | null | undefined): string {
+  if (date == null || date === '') return format(new Date(), 'M/d/yy')
   const d = date instanceof Date ? date : new Date(date)
-  if (Number.isNaN(d.getTime())) return ''
+  if (Number.isNaN(d.getTime())) return format(new Date(), 'M/d/yy')
   return format(d, 'M/d/yy')
 }
 

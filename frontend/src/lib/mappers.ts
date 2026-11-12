@@ -75,10 +75,12 @@ export function mapTransaction(raw: Raw): InventoryTransaction {
 
 export function mapOrder(raw: Raw): Order {
   const items = (raw.items ?? []) as Raw[]
+  const rawDate = raw.date || raw.createdAt || Date.now()
+  const date = new Date(String(rawDate))
   return {
     id: String(raw.id),
     shopName: String(raw.shopName ?? ''),
-    date: new Date(String(raw.date ?? raw.createdAt ?? Date.now())),
+    date: Number.isNaN(date.getTime()) ? new Date() : date,
     status: (raw.status as Order['status']) ?? 'pending',
     shippingFee: Number(raw.shippingFee ?? 0),
     cancelledAt: raw.cancelledAt ? new Date(String(raw.cancelledAt)) : null,
