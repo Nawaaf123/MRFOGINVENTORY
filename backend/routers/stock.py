@@ -60,6 +60,7 @@ async def _upsert_stock(db: AsyncSession, item_id, warehouse_id, new_qty: int) -
 
 
 async def _apply_delta(db: AsyncSession, item_id, warehouse_id, delta: int) -> WarehouseStock:
+    """Apply a stock delta. Never silently clamps — oversell raises 400."""
     result = await db.execute(
         select(WarehouseStock).where(
             WarehouseStock.item_id == item_id,
@@ -68,7 +69,12 @@ async def _apply_delta(db: AsyncSession, item_id, warehouse_id, delta: int) -> W
     )
     stock = result.scalar_one_or_none()
     old_qty = stock.quantity if stock else 0
-    new_qty = max(0, old_qty + delta)
+    new_qty = old_qty + delta
+    if new_qty < 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient stock: available {old_qty}, tried delta {delta}",
+        )
     if stock:
         stock.quantity = new_qty
     else:
@@ -79,7 +85,7 @@ async def _apply_delta(db: AsyncSession, item_id, warehouse_id, delta: int) -> W
         warehouse_id=warehouse_id,
         old_quantity=old_qty,
         new_quantity=new_qty,
-        delta=new_qty - old_qty,
+        delta=delta,
     )
     db.add(audit)
     return stock

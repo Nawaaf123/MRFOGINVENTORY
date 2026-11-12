@@ -10,17 +10,20 @@ from uuid import UUID
 
 # Ledger sign rules
 POSITIVE_TYPES = frozenset({"receive", "transfer_in", "order_cancelled"})
-NEGATIVE_TYPES = frozenset({"sale", "transfer_out"})
-SIGNED_AS_IS = frozenset({"opening_balance", "manual_adjust", "adjust"})
+NEGATIVE_TYPES = frozenset({"transfer_out"})
+SIGNED_AS_IS = frozenset({"opening_balance", "manual_adjust", "adjust", "sale"})
 
 # Ops report buckets (order_cancelled is Returned, not Received)
 RECEIVED_TYPES = frozenset({"receive", "transfer_in"})
-SOLD_TYPES = frozenset({"sale", "transfer_out"})
+SOLD_TYPES = frozenset({"transfer_out"})  # sale handled specially (signed)
 RETURNED_TYPES = frozenset({"order_cancelled"})
 
 
 def signed_quantity(entry_type: str, quantity: int) -> int:
     """Convert a movement to a signed delta for the ledger walk."""
+    if entry_type == "sale":
+        # Already signed: negative = sold, positive = void/edit reverse
+        return int(quantity)
     if entry_type in POSITIVE_TYPES:
         return abs(quantity)
     if entry_type in NEGATIVE_TYPES:
@@ -119,6 +122,13 @@ def _accumulate_totals(
 ) -> tuple[int, int, int]:
     if entry_type in ("opening_balance", "implied_opening"):
         return received, sold, returned
+    if entry_type == "sale":
+        if signed < 0:
+            return received, sold + abs(signed), returned
+        if signed > 0:
+            # Edit void of a previous sale — reduce sold, never below 0
+            return received, max(0, sold - signed), returned
+        return received, sold, returned
     if entry_type in RECEIVED_TYPES:
         return received + abs(signed), sold, returned
     if entry_type in RETURNED_TYPES:
@@ -150,7 +160,8 @@ def build_item_summary(
     """
     stocks: [{warehouse_id, warehouse_name, quantity}]
     transactions: [{id, type, quantity, created_at, warehouse_id, warehouse_name, bol_number, ...}]
-    order_lines: ALL order lines including cancelled (as sales); cancels also appear as order_cancelled txs
+    order_lines: legacy only — ignored when sale transactions exist for the item;
+                 otherwise synthetic sales are built from order lines (pre-hardening data).
     """
     warehouses = warehouses or {}
 
@@ -170,6 +181,7 @@ def build_item_summary(
         current_stock = sum(int(s["quantity"]) for s in stocks)
 
     raw_entries: list[dict[str, Any]] = []
+    has_sale_txs = any(t.get("type") == "sale" for t in transactions)
 
     for t in transactions:
         if warehouse_filter and str(t["warehouse_id"]) != str(warehouse_filter):
@@ -188,27 +200,30 @@ def build_item_summary(
             }
         )
 
-    for line in order_lines:
-        if warehouse_filter and str(line["warehouse_id"]) != str(warehouse_filter):
-            continue
-        shop = line.get("shop_name") or ""
-        if line.get("order_status") == "cancelled":
-            source = f"{shop} (cancelled)" if shop else "Sale (cancelled)"
-        else:
-            source = shop or None
-        raw_entries.append(
-            {
-                "id": str(line["id"]),
-                "type": "sale",
-                "quantity": int(line["quantity"]),
-                "date": line["created_at"],
-                "warehouse_id": str(line["warehouse_id"]) if line.get("warehouse_id") else None,
-                "warehouse_name": line.get("warehouse_name") or wh_name(line.get("warehouse_id")),
-                "source": source,
-                "bol_number": None,
-                "bol_document_url": None,
-            }
-        )
+    # Legacy path: older orders deducted stock without writing sale rows.
+    # After backfill/hardening, sale txs exist and order lines must not be double-counted.
+    if not has_sale_txs:
+        for line in order_lines:
+            if warehouse_filter and str(line["warehouse_id"]) != str(warehouse_filter):
+                continue
+            shop = line.get("shop_name") or ""
+            if line.get("order_status") == "cancelled":
+                source = f"{shop} (cancelled)" if shop else "Sale (cancelled)"
+            else:
+                source = shop or None
+            raw_entries.append(
+                {
+                    "id": str(line["id"]),
+                    "type": "sale",
+                    "quantity": -abs(int(line["quantity"])),
+                    "date": line["created_at"],
+                    "warehouse_id": str(line["warehouse_id"]) if line.get("warehouse_id") else None,
+                    "warehouse_name": line.get("warehouse_name") or wh_name(line.get("warehouse_id")),
+                    "source": source,
+                    "bol_number": None,
+                    "bol_document_url": None,
+                }
+            )
 
     raw_entries.sort(key=lambda e: (e["date"] or datetime.min, e["id"]))
 
@@ -281,10 +296,11 @@ def build_item_summary(
         wid = str(t["warehouse_id"])
         signed = signed_quantity(t["type"], int(t["quantity"]))
         all_for_breakdown.append((wid, t["type"], signed))
-    for line in order_lines:
-        wid = str(line["warehouse_id"])
-        signed = signed_quantity("sale", int(line["quantity"]))
-        all_for_breakdown.append((wid, "sale", signed))
+    if not has_sale_txs:
+        for line in order_lines:
+            wid = str(line["warehouse_id"])
+            signed = signed_quantity("sale", -abs(int(line["quantity"])))
+            all_for_breakdown.append((wid, "sale", signed))
 
     for wid, etype, signed in all_for_breakdown:
         if wid not in breakdown_map:

@@ -35,7 +35,7 @@ export function DriftMonitorView({ inv }: Props) {
       <div className="p-6 border-b bg-background sticky top-0 z-10">
         <h1 className="text-2xl font-bold">Drift Monitor</h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Compare current stock vs transaction log sums
+          Compare current stock vs transaction log sums (includes sales, receives, transfers, cancels, adjusts)
         </p>
       </div>
 

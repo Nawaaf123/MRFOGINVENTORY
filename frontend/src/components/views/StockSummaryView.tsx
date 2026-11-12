@@ -69,6 +69,10 @@ const typeLabels: Record<string, string> = {
   order_cancelled: 'Returned',
 }
 
+function saleLabel(quantity: number): string {
+  return quantity > 0 ? 'Sale void (edit)' : 'Sale'
+}
+
 const typeColors: Record<string, string> = {
   receive: 'bg-green-100 text-green-800',
   sale: 'bg-blue-100 text-blue-800',
@@ -431,7 +435,9 @@ export function StockSummaryView({ inv }: Props) {
                                                   variant="secondary"
                                                   className={typeColors[row.type] ?? ''}
                                                 >
-                                                  {typeLabels[row.type] ?? row.type}
+                                                  {row.type === 'sale'
+                                                    ? saleLabel(row.quantity)
+                                                    : (typeLabels[row.type] ?? row.type)}
                                                 </Badge>
                                               </TableCell>
                                               <TableCell className="text-sm max-w-[180px] truncate">

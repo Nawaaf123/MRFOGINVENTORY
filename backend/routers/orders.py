@@ -98,6 +98,15 @@ async def create_order(body: OrderCreate, db: AsyncSession = Depends(get_db), _=
         )
         db.add(order_item)
         await _apply_delta(db, oi.item_id, oi.warehouse_id, -oi.quantity)
+        # Negative quantity = units sold (same sign convention as transfer_out)
+        db.add(
+            InventoryTransaction(
+                item_id=oi.item_id,
+                warehouse_id=oi.warehouse_id,
+                quantity=-oi.quantity,
+                type="sale",
+            )
+        )
 
     await db.commit()
 
@@ -134,9 +143,17 @@ async def update_order(order_id: UUID, body: OrderUpdate, db: AsyncSession = Dep
         order.shipping_fee = body.shipping_fee
 
     if body.items is not None:
-        # Return stock from old items first so availability check sees freed qty
+        # Return stock from old items and reverse their sale ledger rows
         for old_oi in order.items:
             await _apply_delta(db, old_oi.item_id, old_oi.warehouse_id, old_oi.quantity)
+            db.add(
+                InventoryTransaction(
+                    item_id=old_oi.item_id,
+                    warehouse_id=old_oi.warehouse_id,
+                    quantity=old_oi.quantity,  # positive = void previous sale
+                    type="sale",
+                )
+            )
 
         for old_oi in list(order.items):
             await db.delete(old_oi)
@@ -154,6 +171,14 @@ async def update_order(order_id: UUID, body: OrderUpdate, db: AsyncSession = Dep
             )
             db.add(oi)
             await _apply_delta(db, new_oi.item_id, new_oi.warehouse_id, -new_oi.quantity)
+            db.add(
+                InventoryTransaction(
+                    item_id=new_oi.item_id,
+                    warehouse_id=new_oi.warehouse_id,
+                    quantity=-new_oi.quantity,
+                    type="sale",
+                )
+            )
 
     await db.commit()
 

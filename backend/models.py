@@ -90,7 +90,16 @@ class WarehouseStock(Base):
     __table_args__ = (UniqueConstraint("item_id", "warehouse_id", name="uq_stock_item_warehouse"),)
 
 
-TRANSACTION_TYPES = ("receive", "adjust", "transfer_in", "transfer_out", "opening_balance", "manual_adjust", "order_cancelled")
+TRANSACTION_TYPES = (
+    "receive",
+    "adjust",
+    "transfer_in",
+    "transfer_out",
+    "opening_balance",
+    "manual_adjust",
+    "order_cancelled",
+    "sale",
+)
 
 
 class InventoryTransaction(Base):

@@ -19,6 +19,7 @@ const typeColors: Record<string, string> = {
   opening_balance: 'bg-purple-100 text-purple-800',
   manual_adjust: 'bg-gray-100 text-gray-800',
   order_cancelled: 'bg-red-100 text-red-800',
+  sale: 'bg-blue-100 text-blue-800',
 }
 
 export function InventoryHistoryView({ inv }: Props) {
@@ -65,7 +66,9 @@ export function InventoryHistoryView({ inv }: Props) {
                 <TableCell className="text-sm">{format(new Date(t.date), 'MMM d, yyyy')}</TableCell>
                 <TableCell>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${typeColors[t.type] ?? ''}`}>
-                    {t.type.replace(/_/g, ' ')}
+                    {t.type === 'sale'
+                      ? (t.quantity > 0 ? 'sale void' : 'sale')
+                      : t.type.replace(/_/g, ' ')}
                   </span>
                 </TableCell>
                 <TableCell>
