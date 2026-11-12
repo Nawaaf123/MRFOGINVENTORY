@@ -338,8 +338,32 @@ class OrderOut(BaseModel):
     cancelled_reason: Optional[str]
     created_at: datetime
     items: List[OrderItemOut] = []
+    # Present on list/summary responses so UIs need not download every line
+    cases: Optional[int] = None
+    product_count: Optional[int] = None
+    subtotal: Optional[Decimal] = None
 
     model_config = {"from_attributes": True}
+
+
+class PageMeta(BaseModel):
+    total: int
+    limit: int
+    offset: int
+
+
+class OrderPage(BaseModel):
+    items: List[OrderOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class TransactionPage(BaseModel):
+    items: List[TransactionOut]
+    total: int
+    limit: int
+    offset: int
 
 
 class OrderUpdate(BaseModel):

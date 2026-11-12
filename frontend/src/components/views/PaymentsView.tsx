@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { format, subDays } from 'date-fns'
 import { ChevronDown, ChevronRight, Store, DollarSign, FileText, Search } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
@@ -22,7 +22,11 @@ type DateFilter = 'all' | '7' | '30' | '90'
 type StatusFilter = 'all' | 'open' | 'paid'
 
 function getOrderTotal(order: Order): number {
-  return order.items.reduce((s, i) => s + i.quantity * i.unitPrice, 0) + (order.shippingFee || 0)
+  const subtotal =
+    order.items.length > 0
+      ? order.items.reduce((s, i) => s + i.quantity * i.unitPrice, 0)
+      : order.subtotal ?? 0
+  return subtotal + (order.shippingFee || 0)
 }
 
 function invoiceNumber(order: Order): string {
@@ -51,7 +55,7 @@ type ShopGroup = {
 }
 
 export function PaymentsView({ inv }: Props) {
-  const { orders, payments, wholesalers, addPayment, loading } = inv
+  const { orders, payments, wholesalers, addPayment, loadOrders, loadPayments, getOrder } = inv
   const [expanded, setExpanded] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [dateFilter, setDateFilter] = useState<DateFilter>('all')
@@ -63,6 +67,32 @@ export function PaymentsView({ inv }: Props) {
   const [payMethod, setPayMethod] = useState('cash')
   const [payNote, setPayNote] = useState('')
   const [saving, setSaving] = useState(false)
+  const [pageLoading, setPageLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setPageLoading(true)
+      try {
+        await Promise.all([
+          loadOrders({
+            limit: 500,
+            includeCancelled: false,
+            includeItems: false,
+            days: dateFilter === 'all' ? null : Number(dateFilter),
+          }),
+          loadPayments(),
+        ])
+      } catch {
+        toast.error('Failed to load payments')
+      } finally {
+        if (!cancelled) setPageLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [loadOrders, loadPayments, dateFilter])
 
   const groups = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -174,7 +204,18 @@ export function PaymentsView({ inv }: Props) {
     }
   }
 
-  if (loading) return <div className="p-6 text-muted-foreground">Loading...</div>
+  const handleInvoiceDownload = async (order: Order, shop: string) => {
+    try {
+      const full = order.items.length ? order : await getOrder(order.id)
+      const wholesaler = wholesalers.find((w) => w.name.toLowerCase() === shop.toLowerCase())
+      downloadInvoice(full, wholesaler)
+      toast.success('Invoice downloaded')
+    } catch {
+      toast.error('Failed to prepare invoice')
+    }
+  }
+
+  if (pageLoading) return <div className="p-6 text-muted-foreground">Loading...</div>
 
   return (
     <div className="flex flex-col h-full">
@@ -354,13 +395,7 @@ export function PaymentsView({ inv }: Props) {
                                   size="sm"
                                   className="h-8 w-8 p-0"
                                   title="Download invoice"
-                                  onClick={() => {
-                                    const wholesaler = wholesalers.find(
-                                      (w) => w.name.toLowerCase() === group.shop.toLowerCase()
-                                    )
-                                    downloadInvoice(invRow.order, wholesaler)
-                                    toast.success('Invoice downloaded')
-                                  }}
+                                  onClick={() => void handleInvoiceDownload(invRow.order, group.shop)}
                                 >
                                   <FileText className="h-4 w-4" />
                                 </Button>

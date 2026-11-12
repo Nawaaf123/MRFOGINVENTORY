@@ -1,68 +1,84 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle, Search } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { apiGet } from '@/lib/api'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { toast } from 'sonner'
 
 type Inv = ReturnType<typeof useInventory>
 interface Props { inv: Inv }
 
+type DriftRow = {
+  itemId: string
+  itemName: string
+  itemSku: string
+  warehouseId: string
+  warehouseName: string
+  currentStock: number
+  txSum: number
+  drift: number
+}
+
 export function DriftMonitorView({ inv }: Props) {
-  const { allItems, transactions, warehouses, loading } = inv
+  const { warehouses } = inv
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [warehouseFilter, setWarehouseFilter] = useState('all')
   const [showFilter, setShowFilter] = useState<'drift' | 'all'>('drift')
+  const [rows, setRows] = useState<DriftRow[]>([])
+  const [loading, setLoading] = useState(true)
 
   const sortedWarehouses = useMemo(
     () => [...warehouses].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
     [warehouses]
   )
 
-  const drifts = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return allItems
-      .filter((item) => {
-        if (!q) return true
-        return (
-          item.name.toLowerCase().includes(q) ||
-          item.sku.toLowerCase().includes(q)
-        )
-      })
-      .map((item) => {
-        const results = warehouses
-          .filter((w) => warehouseFilter === 'all' || w.id === warehouseFilter)
-          .map((w) => {
-            const currentStock = item.stock.find((s) => s.warehouseId === w.id)?.quantity ?? 0
-            const txSum = transactions
-              .filter((t) => t.itemId === item.id && t.warehouseId === w.id)
-              .reduce((s, t) => s + t.quantity, 0)
-            const drift = currentStock - txSum
-            return { warehouseId: w.id, warehouseName: w.name, currentStock, txSum, drift }
-          })
-        const hasDrift = results.some((r) => r.drift !== 0)
-        return { item, results, hasDrift }
-      })
-      .filter((d) => showFilter === 'all' || d.hasDrift)
-  }, [allItems, transactions, warehouses, search, warehouseFilter, showFilter])
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 250)
+    return () => clearTimeout(t)
+  }, [search])
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams()
+      params.set('only_drift', showFilter === 'drift' ? 'true' : 'false')
+      if (warehouseFilter !== 'all') params.set('warehouse_id', warehouseFilter)
+      if (debouncedSearch) params.set('q', debouncedSearch)
+      const data = await apiGet<{ items: DriftRow[] }>(`/api/stock/drift?${params.toString()}`)
+      setRows(data.items ?? [])
+    } catch {
+      toast.error('Failed to load drift report')
+      setRows([])
+    } finally {
+      setLoading(false)
+    }
+  }, [warehouseFilter, showFilter, debouncedSearch])
+
+  useEffect(() => {
+    void load()
+  }, [load])
 
   const driftCount = useMemo(
-    () =>
-      allItems.filter((item) =>
-        warehouses.some((w) => {
-          const currentStock = item.stock.find((s) => s.warehouseId === w.id)?.quantity ?? 0
-          const txSum = transactions
-            .filter((t) => t.itemId === item.id && t.warehouseId === w.id)
-            .reduce((s, t) => s + t.quantity, 0)
-          return currentStock - txSum !== 0
-        })
-      ).length,
-    [allItems, transactions, warehouses]
+    () => new Set(rows.filter((r) => r.drift !== 0).map((r) => r.itemId)).size,
+    [rows]
   )
 
-  if (loading) return <div className="p-6 text-muted-foreground">Loading...</div>
+  const grouped = useMemo(() => {
+    const map: Record<string, { itemName: string; itemSku: string; results: DriftRow[]; hasDrift: boolean }> = {}
+    for (const r of rows) {
+      if (!map[r.itemId]) {
+        map[r.itemId] = { itemName: r.itemName, itemSku: r.itemSku, results: [], hasDrift: false }
+      }
+      map[r.itemId].results.push(r)
+      if (r.drift !== 0) map[r.itemId].hasDrift = true
+    }
+    return Object.entries(map)
+  }, [rows])
 
   return (
     <div className="flex flex-col h-full">
@@ -119,69 +135,53 @@ export function DriftMonitorView({ inv }: Props) {
           </Card>
           <Card>
             <CardContent className="p-4 flex items-center gap-3">
-              <CheckCircle className="h-8 w-8 text-green-500" />
+              <CheckCircle className="h-8 w-8 text-green-600" />
               <div>
-                <p className="text-2xl font-bold">{allItems.length - driftCount}</p>
-                <p className="text-sm text-muted-foreground">Items in sync</p>
+                <p className="text-2xl font-bold">{grouped.length}</p>
+                <p className="text-sm text-muted-foreground">Items shown</p>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {drifts.length === 0 ? (
-          <Card>
-            <CardContent className="p-8 text-center text-muted-foreground">
-              <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
-              <p className="font-medium">
-                {showFilter === 'drift'
-                  ? 'All stock values match transaction logs'
-                  : 'No items match these filters'}
-              </p>
-            </CardContent>
-          </Card>
+        {loading ? (
+          <div className="text-center py-12 text-muted-foreground">Calculating drift...</div>
+        ) : grouped.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">No drift found</div>
         ) : (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                {showFilter === 'drift' ? 'Drift Detected' : 'Stock vs Ledger'}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Item</TableHead>
-                    <TableHead>Warehouse</TableHead>
-                    <TableHead>Current</TableHead>
-                    <TableHead>Tx Sum</TableHead>
-                    <TableHead>Drift</TableHead>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Item</TableHead>
+                <TableHead>Warehouse</TableHead>
+                <TableHead className="text-right">Stock</TableHead>
+                <TableHead className="text-right">Tx sum</TableHead>
+                <TableHead className="text-right">Drift</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {grouped.map(([itemId, g]) =>
+                g.results.map((r) => (
+                  <TableRow key={`${itemId}-${r.warehouseId}`}>
+                    <TableCell>
+                      <p className="font-medium text-sm">{g.itemName}</p>
+                      <p className="text-xs text-muted-foreground">{g.itemSku}</p>
+                    </TableCell>
+                    <TableCell>{r.warehouseName}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.currentStock}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.txSum}</TableCell>
+                    <TableCell className="text-right">
+                      {r.drift === 0 ? (
+                        <Badge variant="secondary">0</Badge>
+                      ) : (
+                        <Badge variant="destructive">{r.drift > 0 ? `+${r.drift}` : r.drift}</Badge>
+                      )}
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {drifts.flatMap(({ item, results }) =>
-                    results
-                      .filter((r) => showFilter === 'all' || r.drift !== 0)
-                      .map((r) => (
-                        <TableRow key={`${item.id}-${r.warehouseId}`}>
-                          <TableCell>
-                            <p className="font-medium text-sm">{item.name}</p>
-                            <p className="text-xs text-muted-foreground">{item.sku}</p>
-                          </TableCell>
-                          <TableCell className="text-sm">{r.warehouseName}</TableCell>
-                          <TableCell>{r.currentStock}</TableCell>
-                          <TableCell>{r.txSum}</TableCell>
-                          <TableCell>
-                            <Badge variant={r.drift === 0 ? 'secondary' : 'destructive'}>
-                              {r.drift > 0 ? '+' : ''}{r.drift}
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+                ))
+              )}
+            </TableBody>
+          </Table>
         )}
       </div>
     </div>

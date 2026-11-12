@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { format, isAfter, subDays } from 'date-fns'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { format } from 'date-fns'
 import {
   Search,
   Plus,
@@ -40,15 +40,18 @@ const statusColors: Record<string, string> = {
 }
 
 function casesCount(order: Order) {
-  return order.items.reduce((s, i) => s + i.quantity, 0)
+  if (order.items.length) return order.items.reduce((s, i) => s + i.quantity, 0)
+  return order.cases ?? 0
 }
 
 function productsCount(order: Order) {
-  return order.items.length
+  if (order.items.length) return order.items.length
+  return order.productCount ?? 0
 }
 
 function orderSubtotal(order: Order) {
-  return order.items.reduce((s, i) => s + i.quantity * i.unitPrice, 0)
+  if (order.items.length) return order.items.reduce((s, i) => s + i.quantity * i.unitPrice, 0)
+  return order.subtotal ?? 0
 }
 
 function orderTotal(order: Order) {
@@ -199,6 +202,7 @@ interface Props { inv: Inv }
 export function OrdersView({ inv }: Props) {
   const {
     orders,
+    ordersTotal,
     allItems,
     warehouses,
     wholesalers,
@@ -206,13 +210,19 @@ export function OrdersView({ inv }: Props) {
     updateOrder,
     completeOrder,
     deleteOrder,
-    loading,
+    loadOrders,
+    loadMoreOrders,
+    getOrder,
+    loading: catalogLoading,
   } = inv
 
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [dateFilter, setDateFilter] = useState<DateFilter>('all')
   const [showCancelled, setShowCancelled] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [listLoading, setListLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
 
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Order | null>(null)
@@ -226,18 +236,36 @@ export function OrdersView({ inv }: Props) {
     [warehouses]
   )
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    const cutoff =
-      dateFilter === 'all' ? null : subDays(new Date(), Number(dateFilter))
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 250)
+    return () => clearTimeout(t)
+  }, [search])
 
-    return orders.filter((o) => {
-      if (!showCancelled && o.status === 'cancelled') return false
-      if (q && !o.shopName.toLowerCase().includes(q)) return false
-      if (cutoff && !isAfter(new Date(o.date), cutoff)) return false
-      return true
-    })
-  }, [orders, search, dateFilter, showCancelled])
+  const daysParam = dateFilter === 'all' ? null : Number(dateFilter)
+
+  const reloadList = useCallback(async () => {
+    setListLoading(true)
+    try {
+      await loadOrders({
+        limit: 40,
+        offset: 0,
+        q: debouncedSearch || undefined,
+        days: daysParam,
+        includeCancelled: showCancelled,
+        includeItems: false,
+      })
+    } catch {
+      toast.error('Failed to load orders')
+    } finally {
+      setListLoading(false)
+    }
+  }, [loadOrders, debouncedSearch, daysParam, showCancelled])
+
+  useEffect(() => {
+    void reloadList()
+  }, [reloadList])
+
+  const filtered = orders
 
   const grouped = useMemo(() => {
     const map: Record<string, Order[]> = {}
@@ -298,29 +326,58 @@ export function OrdersView({ inv }: Props) {
     setOpen(true)
   }
 
-  const openEdit = (order: Order) => {
-    setEditing(order)
-    setShopName(order.shopName)
-    setShippingFee(String(order.shippingFee || 0))
-    setLines(
-      order.items.map((i) => ({
-        itemId: i.itemId,
-        itemName: i.itemName,
-        itemSku: i.itemSku,
-        warehouseId: i.warehouseId || sortedWarehouses[0]?.id || '',
-        quantity: String(i.quantity),
-        unitPrice: String(i.unitPrice),
-      }))
-    )
-    setOpen(true)
+  const openEdit = async (order: Order) => {
+    try {
+      const full = order.items.length ? order : await getOrder(order.id)
+      setEditing(full)
+      setShopName(full.shopName)
+      setShippingFee(String(full.shippingFee || 0))
+      setLines(
+        full.items.map((i) => ({
+          itemId: i.itemId,
+          itemName: i.itemName,
+          itemSku: i.itemSku,
+          warehouseId: i.warehouseId || sortedWarehouses[0]?.id || '',
+          quantity: String(i.quantity),
+          unitPrice: String(i.unitPrice),
+        }))
+      )
+      setOpen(true)
+    } catch {
+      toast.error('Failed to load order details')
+    }
   }
 
-  const handleComplete = async (order: Order) => {
+  const handleExpand = async (order: Order) => {
+    if (expandedId === order.id) {
+      setExpandedId(null)
+      return
+    }
+    setExpandedId(order.id)
+    if (!order.items.length) {
+      try {
+        await getOrder(order.id)
+      } catch {
+        toast.error('Failed to load order lines')
+      }
+    }
+  }
+
+  const handleLoadMore = async () => {
+    setLoadingMore(true)
     try {
-      await completeOrder(order.id)
-      toast.success('Order completed')
+      await loadMoreOrders({
+        limit: 40,
+        offset: orders.length,
+        q: debouncedSearch || undefined,
+        days: daysParam,
+        includeCancelled: showCancelled,
+        includeItems: false,
+      })
     } catch {
-      toast.error('Failed to complete order')
+      toast.error('Failed to load more orders')
+    } finally {
+      setLoadingMore(false)
     }
   }
 
@@ -374,10 +431,24 @@ export function OrdersView({ inv }: Props) {
       setShopName('')
       setShippingFee('0')
       setLines([])
+      await reloadList()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : editing ? 'Failed to update order' : 'Failed to create order')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const ensureFullOrder = async (order: Order) =>
+    order.items.length ? order : getOrder(order.id)
+
+  const handleComplete = async (order: Order) => {
+    try {
+      await completeOrder(order.id)
+      toast.success('Order completed')
+      await reloadList()
+    } catch {
+      toast.error('Failed to complete order')
     }
   }
 
@@ -387,27 +458,45 @@ export function OrdersView({ inv }: Props) {
       await deleteOrder(order.id, 'Cancelled by user')
       toast.success('Order cancelled')
       if (expandedId === order.id) setExpandedId(null)
+      await reloadList()
     } catch {
       toast.error('Failed to cancel order')
     }
   }
 
-  const handleDownloadSheet = (order: Order) => {
-    downloadPickSheet(order, allItems)
-    toast.success('Order sheet downloaded')
+  const handleDownloadSheet = async (order: Order) => {
+    try {
+      const full = await ensureFullOrder(order)
+      downloadPickSheet(full, allItems)
+      toast.success('Order sheet downloaded')
+    } catch {
+      toast.error('Failed to prepare order sheet')
+    }
   }
 
-  const handleInvoice = (order: Order) => {
-    downloadInvoice(order)
-    toast.success('Invoice downloaded')
+  const handleInvoice = async (order: Order) => {
+    try {
+      const full = await ensureFullOrder(order)
+      downloadInvoice(full)
+      toast.success('Invoice downloaded')
+    } catch {
+      toast.error('Failed to prepare invoice')
+    }
   }
 
-  const handlePreview = (order: Order) => {
-    const url = previewPickSheet(order, allItems)
-    window.open(url, '_blank')
+  const handlePreview = async (order: Order) => {
+    try {
+      const full = await ensureFullOrder(order)
+      const url = previewPickSheet(full, allItems)
+      window.open(url, '_blank')
+    } catch {
+      toast.error('Failed to preview order sheet')
+    }
   }
 
-  if (loading) return <div className="p-6 text-muted-foreground">Loading orders...</div>
+  if (catalogLoading && listLoading) {
+    return <div className="p-6 text-muted-foreground">Loading orders...</div>
+  }
 
   const sortedDates = Object.keys(grouped).sort().reverse()
 
@@ -423,7 +512,22 @@ export function OrdersView({ inv }: Props) {
         </div>
       </div>
 
-      <Tabs defaultValue="list" className="flex-1 overflow-hidden flex flex-col">
+      <Tabs
+        defaultValue="list"
+        className="flex-1 overflow-hidden flex flex-col"
+        onValueChange={(v) => {
+          if (v === 'by-product') {
+            void loadOrders({
+              limit: 200,
+              offset: 0,
+              q: debouncedSearch || undefined,
+              days: daysParam,
+              includeCancelled: showCancelled,
+              includeItems: true,
+            }).catch(() => toast.error('Failed to load product breakdown'))
+          }
+        }}
+      >
         <div className="px-6 pt-4 space-y-3 border-b bg-background">
           <TabsList className="w-fit">
             <TabsTrigger value="list">Orders</TabsTrigger>
@@ -482,20 +586,30 @@ export function OrdersView({ inv }: Props) {
                       key={order.id}
                       order={order}
                       expanded={expandedId === order.id}
-                      onToggle={() => setExpandedId((id) => (id === order.id ? null : order.id))}
+                      onToggle={() => void handleExpand(order)}
                       onCancel={handleCancel}
                       onComplete={handleComplete}
-                      onDownloadSheet={handleDownloadSheet}
-                      onInvoice={handleInvoice}
-                      onPreview={handlePreview}
-                      onEdit={openEdit}
+                      onDownloadSheet={(o) => void handleDownloadSheet(o)}
+                      onInvoice={(o) => void handleInvoice(o)}
+                      onPreview={(o) => void handlePreview(o)}
+                      onEdit={(o) => void openEdit(o)}
                     />
                   ))}
                 </div>
               </div>
             ))}
-            {sortedDates.length === 0 && (
+            {listLoading && (
+              <div className="text-center py-8 text-muted-foreground">Loading orders...</div>
+            )}
+            {!listLoading && sortedDates.length === 0 && (
               <div className="text-center py-12 text-muted-foreground">No orders found</div>
+            )}
+            {!listLoading && orders.length < ordersTotal && (
+              <div className="flex justify-center pt-2">
+                <Button variant="outline" onClick={() => void handleLoadMore()} disabled={loadingMore}>
+                  {loadingMore ? 'Loading...' : `Load more (${orders.length} of ${ordersTotal})`}
+                </Button>
+              </div>
             )}
           </div>
         </TabsContent>

@@ -67,6 +67,17 @@ export interface Order {
   shippingFee: number;
   cancelledAt?: Date | null;
   cancelledReason?: string | null;
+  /** List/summary fields — used when line items are not loaded */
+  cases?: number;
+  productCount?: number;
+  subtotal?: number;
+}
+
+export interface PageResult<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface Wholesaler {

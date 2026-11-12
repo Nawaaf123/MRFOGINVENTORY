@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload, selectinload
 
 from database import get_db
@@ -102,6 +102,61 @@ async def _available_qty(db: AsyncSession, item_id, warehouse_id) -> int:
     return stock.quantity if stock else 0
 
 
+@router.get("/drift")
+async def stock_drift(
+    warehouse_id: Optional[UUID] = Query(None),
+    q: Optional[str] = Query(None),
+    only_drift: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Compare live warehouse_stock to SUM(transaction.quantity) per item/warehouse."""
+    tx_sums = (
+        await db.execute(
+            select(
+                InventoryTransaction.item_id,
+                InventoryTransaction.warehouse_id,
+                func.coalesce(func.sum(InventoryTransaction.quantity), 0),
+            ).group_by(InventoryTransaction.item_id, InventoryTransaction.warehouse_id)
+        )
+    ).all()
+    tx_map = {(row[0], row[1]): int(row[2]) for row in tx_sums}
+
+    items_q = select(InventoryItem).options(
+        selectinload(InventoryItem.stocks).joinedload(WarehouseStock.warehouse)
+    ).order_by(InventoryItem.sku)
+    items = (await db.execute(items_q)).scalars().unique().all()
+    if q and q.strip():
+        needle = q.strip().lower()
+        items = [
+            i for i in items
+            if needle in (i.name or "").lower() or needle in (i.sku or "").lower()
+        ]
+
+    warehouses = (await db.execute(select(Warehouse))).scalars().all()
+    rows = []
+    for item in items:
+        stocks = item.stocks
+        if warehouse_id:
+            stocks = [s for s in stocks if s.warehouse_id == warehouse_id]
+        for s in stocks:
+            tx_sum = tx_map.get((item.id, s.warehouse_id), 0)
+            drift = int(s.quantity or 0) - tx_sum
+            if only_drift and drift == 0:
+                continue
+            rows.append({
+                "item_id": item.id,
+                "item_name": item.name,
+                "item_sku": item.sku,
+                "warehouse_id": s.warehouse_id,
+                "warehouse_name": s.warehouse.name if s.warehouse else None,
+                "current_stock": int(s.quantity or 0),
+                "tx_sum": tx_sum,
+                "drift": drift,
+            })
+    return {"items": rows, "warehouses": [{"id": w.id, "name": w.name} for w in warehouses]}
+
+
 @router.get("/summary", response_model=StockSummaryResponse)
 async def stock_summary(
     warehouse_id: Optional[UUID] = Query(None),
@@ -135,20 +190,28 @@ async def stock_summary(
     warehouses = (await db.execute(select(Warehouse))).scalars().all()
     warehouse_names = {str(w.id): w.name for w in warehouses}
 
-    tx_q = select(InventoryTransaction).options(
-        joinedload(InventoryTransaction.item),
-        joinedload(InventoryTransaction.warehouse),
+    # Lightweight rows (no ORM relationship hydration) — much faster at scale
+    tx_q = select(
+        InventoryTransaction.id,
+        InventoryTransaction.item_id,
+        InventoryTransaction.warehouse_id,
+        InventoryTransaction.quantity,
+        InventoryTransaction.type,
+        InventoryTransaction.created_at,
+        InventoryTransaction.bol_number,
+        InventoryTransaction.bol_document_url,
+        InventoryTransaction.note,
     )
     if item_id:
         tx_q = tx_q.where(InventoryTransaction.item_id == item_id)
-    transactions = (await db.execute(tx_q)).scalars().unique().all()
-
-    orders_q = select(Order).options(selectinload(Order.items).joinedload(OrderItem.warehouse))
-    orders = (await db.execute(orders_q)).scalars().unique().all()
+    tx_rows = (await db.execute(tx_q)).all()
 
     txs_by_item: dict[str, list] = {}
-    for t in transactions:
+    items_with_sale: set[str] = set()
+    for t in tx_rows:
         key = str(t.item_id)
+        if t.type == "sale":
+            items_with_sale.add(key)
         txs_by_item.setdefault(key, []).append(
             {
                 "id": t.id,
@@ -156,7 +219,7 @@ async def stock_summary(
                 "quantity": t.quantity,
                 "created_at": t.created_at,
                 "warehouse_id": t.warehouse_id,
-                "warehouse_name": t.warehouse.name if t.warehouse else warehouse_names.get(str(t.warehouse_id)),
+                "warehouse_name": warehouse_names.get(str(t.warehouse_id)),
                 "bol_number": t.bol_number,
                 "bol_document_url": t.bol_document_url,
                 "note": t.note,
@@ -164,21 +227,37 @@ async def stock_summary(
             }
         )
 
+    # Legacy sold counts from order lines only for items that never wrote sale txs
     lines_by_item: dict[str, list] = {}
-    for order in orders:
-        for oi in order.items:
-            if item_id and oi.item_id != item_id:
-                continue
-            key = str(oi.item_id)
+    legacy_needed = [i for i in items if str(i.id) not in items_with_sale]
+    if legacy_needed:
+        legacy_ids = [i.id for i in legacy_needed]
+        line_q = (
+            select(
+                OrderItem.id,
+                OrderItem.item_id,
+                OrderItem.warehouse_id,
+                OrderItem.quantity,
+                Order.created_at,
+                Order.shop_name,
+                Order.status,
+            )
+            .join(Order, Order.id == OrderItem.order_id)
+            .where(OrderItem.item_id.in_(legacy_ids))
+        )
+        if item_id:
+            line_q = line_q.where(OrderItem.item_id == item_id)
+        for row in (await db.execute(line_q)).all():
+            key = str(row.item_id)
             lines_by_item.setdefault(key, []).append(
                 {
-                    "id": oi.id,
-                    "quantity": oi.quantity,
-                    "created_at": order.created_at,
-                    "warehouse_id": oi.warehouse_id,
-                    "warehouse_name": oi.warehouse.name if oi.warehouse else warehouse_names.get(str(oi.warehouse_id)),
-                    "shop_name": order.shop_name,
-                    "order_status": order.status,
+                    "id": row.id,
+                    "quantity": row.quantity,
+                    "created_at": row.created_at,
+                    "warehouse_id": row.warehouse_id,
+                    "warehouse_name": warehouse_names.get(str(row.warehouse_id)),
+                    "shop_name": row.shop_name,
+                    "order_status": row.status,
                 }
             )
 

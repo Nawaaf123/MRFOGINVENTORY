@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { format, subDays } from 'date-fns'
 import { Download, Search } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
@@ -15,10 +15,31 @@ interface Props { inv: Inv }
 type DateFilter = 'all' | '7' | '30' | '90'
 
 export function PaymentHistoryView({ inv }: Props) {
-  const { payments, orders, loading } = inv
+  const { payments, orders, loadOrders, loadPayments } = inv
   const [search, setSearch] = useState('')
   const [dateFilter, setDateFilter] = useState<DateFilter>('all')
   const [methodFilter, setMethodFilter] = useState('all')
+  const [pageLoading, setPageLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setPageLoading(true)
+      try {
+        await Promise.all([
+          loadPayments(),
+          loadOrders({ limit: 500, includeCancelled: true, includeItems: false }),
+        ])
+      } catch {
+        toast.error('Failed to load payment history')
+      } finally {
+        if (!cancelled) setPageLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [loadPayments, loadOrders])
 
   const enriched = useMemo(
     () =>
@@ -71,7 +92,7 @@ export function PaymentHistoryView({ inv }: Props) {
     }
   }
 
-  if (loading) return <div className="p-6 text-muted-foreground">Loading...</div>
+  if (pageLoading) return <div className="p-6 text-muted-foreground">Loading...</div>
 
   return (
     <div className="flex flex-col h-full">

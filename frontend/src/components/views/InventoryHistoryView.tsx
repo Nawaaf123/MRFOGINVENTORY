@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { format, subDays } from 'date-fns'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { format } from 'date-fns'
 import { ExternalLink, Search } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
 import { Badge } from '@/components/ui/badge'
@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { openBolDocument } from '@/lib/bolDocs'
+import { toast } from 'sonner'
 
 type Inv = ReturnType<typeof useInventory>
 interface Props { inv: Inv }
@@ -38,38 +39,67 @@ const TYPE_OPTIONS = [
 ]
 
 export function InventoryHistoryView({ inv }: Props) {
-  const { transactions, warehouses, loading } = inv
+  const {
+    transactions,
+    transactionsTotal,
+    warehouses,
+    loadTransactions,
+    loadMoreTransactions,
+  } = inv
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
   const [warehouseFilter, setWarehouseFilter] = useState('all')
   const [dateFilter, setDateFilter] = useState<DateFilter>('all')
+  const [listLoading, setListLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
 
   const sortedWarehouses = useMemo(
     () => [...warehouses].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
     [warehouses]
   )
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    const since =
-      dateFilter === 'all' ? null : subDays(new Date(), Number(dateFilter))
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 250)
+    return () => clearTimeout(t)
+  }, [search])
 
-    return transactions.filter((t) => {
-      if (typeFilter !== 'all' && t.type !== typeFilter) return false
-      if (warehouseFilter !== 'all' && t.warehouseId !== warehouseFilter) return false
-      if (since && new Date(t.date) < since) return false
-      if (!q) return true
-      return (
-        t.itemName.toLowerCase().includes(q) ||
-        t.itemSku.toLowerCase().includes(q) ||
-        t.bolNumber.toLowerCase().includes(q) ||
-        (t.note || '').toLowerCase().includes(q) ||
-        t.warehouseName.toLowerCase().includes(q)
-      )
-    })
-  }, [transactions, search, typeFilter, warehouseFilter, dateFilter])
+  const query = useMemo(
+    () => ({
+      limit: 100,
+      q: debouncedSearch || undefined,
+      type: typeFilter,
+      warehouseId: warehouseFilter === 'all' ? undefined : warehouseFilter,
+      days: dateFilter === 'all' ? null : Number(dateFilter),
+    }),
+    [debouncedSearch, typeFilter, warehouseFilter, dateFilter]
+  )
 
-  if (loading) return <div className="p-6 text-muted-foreground">Loading...</div>
+  const reload = useCallback(async () => {
+    setListLoading(true)
+    try {
+      await loadTransactions({ ...query, offset: 0 })
+    } catch {
+      toast.error('Failed to load inventory history')
+    } finally {
+      setListLoading(false)
+    }
+  }, [loadTransactions, query])
+
+  useEffect(() => {
+    void reload()
+  }, [reload])
+
+  const handleLoadMore = async () => {
+    setLoadingMore(true)
+    try {
+      await loadMoreTransactions({ ...query, offset: transactions.length })
+    } catch {
+      toast.error('Failed to load more')
+    } finally {
+      setLoadingMore(false)
+    }
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -133,14 +163,21 @@ export function InventoryHistoryView({ inv }: Props) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.length === 0 && (
+            {listLoading && (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
-                  {transactions.length ? 'No transactions match these filters' : 'No transactions found'}
+                  Loading history...
                 </TableCell>
               </TableRow>
             )}
-            {filtered.map((t) => (
+            {!listLoading && transactions.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
+                  No transactions found
+                </TableCell>
+              </TableRow>
+            )}
+            {transactions.map((t) => (
               <TableRow key={t.id}>
                 <TableCell className="text-sm">{format(new Date(t.date), 'MMM d, yyyy')}</TableCell>
                 <TableCell>
@@ -178,6 +215,13 @@ export function InventoryHistoryView({ inv }: Props) {
             ))}
           </TableBody>
         </Table>
+        {!listLoading && transactions.length < transactionsTotal && (
+          <div className="flex justify-center py-4">
+            <Button variant="outline" onClick={() => void handleLoadMore()} disabled={loadingMore}>
+              {loadingMore ? 'Loading...' : `Load more (${transactions.length} of ${transactionsTotal})`}
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { format, subDays } from 'date-fns'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { format } from 'date-fns'
 import { ExternalLink, Trash2, Plus, Search } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
 import { Button } from '@/components/ui/button'
@@ -20,7 +20,16 @@ interface Props { inv: Inv }
 type DateFilter = 'all' | '7' | '30' | '90'
 
 export function ReceivingsView({ inv }: Props) {
-  const { transactions, allItems, warehouses, receiveStockBatch, deleteReceiving, loading } = inv
+  const {
+    transactions,
+    transactionsTotal,
+    allItems,
+    warehouses,
+    receiveStockBatch,
+    deleteReceiving,
+    loadTransactions,
+    loadMoreTransactions,
+  } = inv
   const [_deleting, setDeleting] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -28,35 +37,52 @@ export function ReceivingsView({ inv }: Props) {
   const [bolNumber, setBolNumber] = useState('')
   const [lines, setLines] = useState<PickedProductLine[]>([])
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [warehouseFilter, setWarehouseFilter] = useState('all')
   const [dateFilter, setDateFilter] = useState<DateFilter>('all')
+  const [listLoading, setListLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
 
   const sortedWarehouses = useMemo(
     () => [...warehouses].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
     [warehouses]
   )
 
-  const receivings = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    const since =
-      dateFilter === 'all' ? null : subDays(new Date(), Number(dateFilter))
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 250)
+    return () => clearTimeout(t)
+  }, [search])
 
-    return transactions.filter((t) => {
-      if (!['receive', 'opening_balance'].includes(t.type)) return false
-      if (warehouseFilter !== 'all' && t.warehouseId !== warehouseFilter) return false
-      if (since && new Date(t.date) < since) return false
-      if (!q) return true
-      return (
-        t.itemName.toLowerCase().includes(q) ||
-        t.itemSku.toLowerCase().includes(q) ||
-        t.bolNumber.toLowerCase().includes(q) ||
-        t.warehouseName.toLowerCase().includes(q)
-      )
-    })
-  }, [transactions, search, warehouseFilter, dateFilter])
+  const query = useMemo(
+    () => ({
+      limit: 150,
+      q: debouncedSearch || undefined,
+      types: 'receive,opening_balance',
+      warehouseId: warehouseFilter === 'all' ? undefined : warehouseFilter,
+      days: dateFilter === 'all' ? null : Number(dateFilter),
+    }),
+    [debouncedSearch, warehouseFilter, dateFilter]
+  )
+
+  const reload = useCallback(async () => {
+    setListLoading(true)
+    try {
+      await loadTransactions({ ...query, offset: 0 })
+    } catch {
+      toast.error('Failed to load receivings')
+    } finally {
+      setListLoading(false)
+    }
+  }, [loadTransactions, query])
+
+  useEffect(() => {
+    void reload()
+  }, [reload])
+
+  const receivings = transactions
 
   const grouped = receivings.reduce<Record<string, InventoryTransaction[]>>((acc, t) => {
-    const key = `${t.bolNumber}__${format(new Date(t.date), 'yyyy-MM-dd')}`
+    const key = `${t.bolNumber || 'NO-BOL'}__${format(new Date(t.date), 'yyyy-MM-dd')}`
     if (!acc[key]) acc[key] = []
     acc[key].push(t)
     return acc
@@ -75,6 +101,7 @@ export function ReceivingsView({ inv }: Props) {
     try {
       await deleteReceiving(t.bolNumber)
       toast.success('Receiving deleted')
+      await reload()
     } catch {
       toast.error('Failed to delete')
     } finally {
@@ -102,6 +129,7 @@ export function ReceivingsView({ inv }: Props) {
       setOpen(false)
       setLines([])
       setBolNumber('')
+      await reload()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to receive stock')
     } finally {
@@ -109,7 +137,16 @@ export function ReceivingsView({ inv }: Props) {
     }
   }
 
-  if (loading) return <div className="p-6 text-muted-foreground">Loading...</div>
+  const handleLoadMore = async () => {
+    setLoadingMore(true)
+    try {
+      await loadMoreTransactions({ ...query, offset: transactions.length })
+    } catch {
+      toast.error('Failed to load more')
+    } finally {
+      setLoadingMore(false)
+    }
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -159,12 +196,11 @@ export function ReceivingsView({ inv }: Props) {
       </div>
 
       <div className="flex-1 overflow-auto p-6 space-y-6">
-        {Object.keys(grouped).length === 0 && (
-          <div className="text-center py-12 text-muted-foreground">
-            {transactions.some((t) => ['receive', 'opening_balance'].includes(t.type))
-              ? 'No receivings match these filters'
-              : 'No receivings found'}
-          </div>
+        {listLoading && (
+          <div className="text-center py-12 text-muted-foreground">Loading receivings...</div>
+        )}
+        {!listLoading && Object.keys(grouped).length === 0 && (
+          <div className="text-center py-12 text-muted-foreground">No receivings found</div>
         )}
         {Object.entries(grouped).map(([key, txs]) => {
           const [bol, date] = key.split('__')
@@ -203,6 +239,13 @@ export function ReceivingsView({ inv }: Props) {
             </div>
           )
         })}
+        {!listLoading && transactions.length < transactionsTotal && (
+          <div className="flex justify-center">
+            <Button variant="outline" onClick={() => void handleLoadMore()} disabled={loadingMore}>
+              {loadingMore ? 'Loading...' : `Load more (${transactions.length} of ${transactionsTotal})`}
+            </Button>
+          </div>
+        )}
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>

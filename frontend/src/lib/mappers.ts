@@ -77,6 +77,17 @@ export function mapOrder(raw: Raw): Order {
   const items = (raw.items ?? []) as Raw[]
   const rawDate = raw.date || raw.createdAt || Date.now()
   const date = new Date(String(rawDate))
+  const mappedItems = items.map((item) => ({
+    itemId: String(item.itemId),
+    itemName: String(item.itemName ?? ''),
+    itemSku: String(item.itemSku ?? ''),
+    warehouseId: String(item.warehouseId),
+    warehouseName: String(item.warehouseName ?? ''),
+    quantity: Number(item.quantity ?? 0),
+    unitPrice: Number(item.unitPrice ?? 0),
+  }))
+  const casesFromItems = mappedItems.reduce((s, i) => s + i.quantity, 0)
+  const subtotalFromItems = mappedItems.reduce((s, i) => s + i.quantity * i.unitPrice, 0)
   return {
     id: String(raw.id),
     shopName: String(raw.shopName ?? ''),
@@ -85,15 +96,20 @@ export function mapOrder(raw: Raw): Order {
     shippingFee: Number(raw.shippingFee ?? 0),
     cancelledAt: raw.cancelledAt ? new Date(String(raw.cancelledAt)) : null,
     cancelledReason: (raw.cancelledReason as string | null) ?? null,
-    items: items.map((item) => ({
-      itemId: String(item.itemId),
-      itemName: String(item.itemName ?? ''),
-      itemSku: String(item.itemSku ?? ''),
-      warehouseId: String(item.warehouseId),
-      warehouseName: String(item.warehouseName ?? ''),
-      quantity: Number(item.quantity ?? 0),
-      unitPrice: Number(item.unitPrice ?? 0),
-    })),
+    items: mappedItems,
+    cases: raw.cases != null ? Number(raw.cases) : mappedItems.length ? casesFromItems : undefined,
+    productCount:
+      raw.productCount != null
+        ? Number(raw.productCount)
+        : mappedItems.length
+          ? mappedItems.length
+          : undefined,
+    subtotal:
+      raw.subtotal != null
+        ? Number(raw.subtotal)
+        : mappedItems.length
+          ? subtotalFromItems
+          : undefined,
   }
 }
 

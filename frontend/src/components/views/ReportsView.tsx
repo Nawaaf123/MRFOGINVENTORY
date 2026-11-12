@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { format, subDays, isAfter, isBefore } from 'date-fns'
 import {
   BarChart,
@@ -22,10 +22,34 @@ import { formatCurrency } from '@/lib/utils'
 type Inv = ReturnType<typeof useInventory>
 interface Props { inv: Inv }
 
+function orderRevenue(o: { items: { quantity: number; unitPrice: number }[]; subtotal?: number; shippingFee: number }) {
+  const sub =
+    o.items.length > 0
+      ? o.items.reduce((s, i) => s + i.quantity * i.unitPrice, 0)
+      : o.subtotal ?? 0
+  return sub + (o.shippingFee || 0)
+}
+
 export function ReportsView({ inv }: Props) {
-  const { orders, loading } = inv
+  const { orders, loadOrders } = inv
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 30), 'yyyy-MM-dd'))
   const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [pageLoading, setPageLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setPageLoading(true)
+      try {
+        await loadOrders({ limit: 500, includeCancelled: false, includeItems: false })
+      } finally {
+        if (!cancelled) setPageLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [loadOrders])
 
   const filtered = orders.filter((o) => {
     const d = new Date(o.date)
@@ -40,8 +64,7 @@ export function ReportsView({ inv }: Props) {
     const map: Record<string, number> = {}
     filtered.forEach((o) => {
       const key = format(new Date(o.date), 'MMM d')
-      const total = o.items.reduce((s, i) => s + i.quantity * i.unitPrice, 0) + o.shippingFee
-      map[key] = (map[key] ?? 0) + total
+      map[key] = (map[key] ?? 0) + orderRevenue(o)
     })
     return Object.entries(map).map(([date, sales]) => ({ date, sales }))
   }, [filtered])
@@ -49,8 +72,7 @@ export function ReportsView({ inv }: Props) {
   const shopSales = useMemo(() => {
     const map: Record<string, number> = {}
     filtered.forEach((o) => {
-      const total = o.items.reduce((s, i) => s + i.quantity * i.unitPrice, 0) + o.shippingFee
-      map[o.shopName] = (map[o.shopName] ?? 0) + total
+      map[o.shopName] = (map[o.shopName] ?? 0) + orderRevenue(o)
     })
     return Object.entries(map)
       .map(([shop, sales]) => ({ shop, sales }))
@@ -58,13 +80,10 @@ export function ReportsView({ inv }: Props) {
       .slice(0, 10)
   }, [filtered])
 
-  const totalRevenue = filtered.reduce(
-    (s, o) => s + o.items.reduce((a, i) => a + i.quantity * i.unitPrice, 0) + o.shippingFee,
-    0
-  )
+  const totalRevenue = filtered.reduce((s, o) => s + orderRevenue(o), 0)
   const totalOrders = filtered.length
 
-  if (loading) return <div className="p-6 text-muted-foreground">Loading...</div>
+  if (pageLoading) return <div className="p-6 text-muted-foreground">Loading...</div>
 
   return (
     <div className="flex flex-col h-full">
