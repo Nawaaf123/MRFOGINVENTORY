@@ -18,6 +18,18 @@ function sectionLabel(item: InventoryItem | undefined, fallbackSku: string): str
   return fallbackSku.split('-')[0] || 'OTHER'
 }
 
+/** Warehouse initial shown after the flavor, e.g. (Y) York, (G) Glendale, (B) Bensenville. */
+function warehouseInitial(warehouseName: string): string {
+  const letter = warehouseName.trim().charAt(0).toUpperCase()
+  return letter || '?'
+}
+
+function flavorWithWarehouse(name: string, warehouseName: string): string {
+  const base = name.replace(/\s*\([A-Za-z]\)\s*$/, '').trim()
+  const initial = warehouseInitial(warehouseName)
+  return initial ? `${base} (${initial})` : base
+}
+
 function buildLines(order: Order, catalog: InventoryItem[]): SheetLine[] {
   const byId = new Map(catalog.map((i) => [i.id, i]))
   return order.items
@@ -26,7 +38,7 @@ function buildLines(order: Order, catalog: InventoryItem[]): SheetLine[] {
       const item = byId.get(i.itemId)
       return {
         sku: i.itemSku,
-        name: i.itemName,
+        name: flavorWithWarehouse(i.itemName, i.warehouseName),
         quantity: i.quantity,
         section: sectionLabel(item, i.itemSku),
       }
