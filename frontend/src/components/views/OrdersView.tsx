@@ -607,8 +607,9 @@ export function OrdersView({ inv }: Props) {
             'overflow-hidden !flex flex-col gap-3 p-4 sm:p-6',
             // Phone / tablet: nearly full-screen for finger order entry
             'w-[100dvw] max-w-none h-[100dvh] max-h-[100dvh] rounded-none',
-            'sm:w-[min(100vw-1.5rem,48rem)] sm:h-auto sm:max-h-[92vh] sm:rounded-lg',
-            'md:max-w-3xl'
+            // Phones stay full-bleed; tablets get a tall sheet; desktop a centered dialog
+            'sm:rounded-lg sm:w-[min(100vw-1rem,42rem)] sm:h-[min(96dvh,920px)] sm:max-h-[96dvh]',
+            'lg:w-full lg:max-w-3xl lg:h-auto lg:max-h-[92vh]'
           )}
         >
           <DialogHeader className="shrink-0 pr-8">
@@ -631,16 +632,16 @@ export function OrdersView({ inv }: Props) {
               reservedQty={reservedQty}
             />
           </div>
-          <DialogFooter className="shrink-0 gap-2 border-t pt-3 sm:border-0 sm:pt-0">
+          <DialogFooter className="shrink-0 gap-2 border-t pt-3 flex-col sm:flex-row sm:border-0 sm:pt-0">
             <Button
               variant="outline"
-              className="h-12 text-base sm:h-9 sm:text-sm"
+              className="h-12 w-full text-base sm:h-9 sm:w-auto sm:text-sm order-2 sm:order-1"
               onClick={() => setOpen(false)}
             >
               Cancel
             </Button>
             <Button
-              className="h-12 text-base bg-primary hover:bg-primary/90 text-primary-foreground sm:h-9 sm:text-sm"
+              className="h-12 w-full text-base bg-primary hover:bg-primary/90 text-primary-foreground sm:h-9 sm:w-auto sm:text-sm order-1 sm:order-2"
               onClick={handleSave}
               disabled={saving || lines.length === 0}
             >

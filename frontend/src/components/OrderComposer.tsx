@@ -621,8 +621,8 @@ export function OrderComposer({
     <div className="flex flex-col gap-3 min-h-0 h-full">
       {filters}
 
-      {/* Mobile / tablet: Browse | Cart tabs */}
-      <div className="flex flex-col gap-3 min-h-0 flex-1 md:hidden">
+      {/* Phone / tablet: Browse | Cart tabs (desktop table from lg up) */}
+      <div className="flex flex-col gap-3 min-h-0 flex-1 lg:hidden">
         {scanRow}
         <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1 shrink-0">
           <button
@@ -671,7 +671,7 @@ export function OrderComposer({
       </div>
 
       {/* Desktop */}
-      <div className="hidden md:flex md:flex-col md:gap-3">
+      <div className="hidden lg:flex lg:flex-col lg:gap-3">
         <div className="flex gap-2">
           {scanRow}
           {desktopBrowsePopover}
@@ -686,7 +686,7 @@ export function OrderComposer({
         </p>
       )}
 
-      <div className="hidden md:flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="hidden lg:flex items-center gap-2 text-xs text-muted-foreground">
         <Store className="h-3.5 w-3.5" />
         Warehouse letter on the order sheet comes from each line’s warehouse (B/G/Y/A).
       </div>
