@@ -1,15 +1,18 @@
-import { useState } from 'react'
-import { format } from 'date-fns'
-import { ExternalLink } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { format, subDays } from 'date-fns'
+import { ExternalLink, Search } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { openBolDocument } from '@/lib/bolDocs'
 
 type Inv = ReturnType<typeof useInventory>
 interface Props { inv: Inv }
+
+type DateFilter = 'all' | '7' | '30' | '90'
 
 const typeColors: Record<string, string> = {
   receive: 'bg-green-100 text-green-800',
@@ -22,28 +25,98 @@ const typeColors: Record<string, string> = {
   sale: 'bg-blue-100 text-blue-800',
 }
 
-export function InventoryHistoryView({ inv }: Props) {
-  const { transactions, loading } = inv
-  const [search, setSearch] = useState('')
+const TYPE_OPTIONS = [
+  { value: 'all', label: 'All types' },
+  { value: 'sale', label: 'Sale' },
+  { value: 'receive', label: 'Receive' },
+  { value: 'transfer_in', label: 'Transfer in' },
+  { value: 'transfer_out', label: 'Transfer out' },
+  { value: 'opening_balance', label: 'Opening balance' },
+  { value: 'manual_adjust', label: 'Manual adjust' },
+  { value: 'adjust', label: 'Adjust' },
+  { value: 'order_cancelled', label: 'Order cancelled' },
+]
 
-  const filtered = transactions.filter((t) => {
-    const q = search.toLowerCase()
-    return (
-      t.itemName.toLowerCase().includes(q) ||
-      t.bolNumber.toLowerCase().includes(q) ||
-      (t.note || '').toLowerCase().includes(q) ||
-      t.warehouseName.toLowerCase().includes(q)
-    )
-  })
+export function InventoryHistoryView({ inv }: Props) {
+  const { transactions, warehouses, loading } = inv
+  const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [warehouseFilter, setWarehouseFilter] = useState('all')
+  const [dateFilter, setDateFilter] = useState<DateFilter>('all')
+
+  const sortedWarehouses = useMemo(
+    () => [...warehouses].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
+    [warehouses]
+  )
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const since =
+      dateFilter === 'all' ? null : subDays(new Date(), Number(dateFilter))
+
+    return transactions.filter((t) => {
+      if (typeFilter !== 'all' && t.type !== typeFilter) return false
+      if (warehouseFilter !== 'all' && t.warehouseId !== warehouseFilter) return false
+      if (since && new Date(t.date) < since) return false
+      if (!q) return true
+      return (
+        t.itemName.toLowerCase().includes(q) ||
+        t.itemSku.toLowerCase().includes(q) ||
+        t.bolNumber.toLowerCase().includes(q) ||
+        (t.note || '').toLowerCase().includes(q) ||
+        t.warehouseName.toLowerCase().includes(q)
+      )
+    })
+  }, [transactions, search, typeFilter, warehouseFilter, dateFilter])
 
   if (loading) return <div className="p-6 text-muted-foreground">Loading...</div>
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-6 border-b bg-background sticky top-0 z-10">
+      <div className="p-6 border-b bg-background sticky top-0 z-10 space-y-3">
         <h1 className="text-2xl font-bold">Inventory History</h1>
-        <div className="mt-3">
-          <Input placeholder="Search by item, BOL, or warehouse..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[180px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by item, BOL, or warehouse..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <SelectTrigger className="w-full sm:w-44">
+              <SelectValue placeholder="Type" />
+            </SelectTrigger>
+            <SelectContent>
+              {TYPE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={warehouseFilter} onValueChange={setWarehouseFilter}>
+            <SelectTrigger className="w-full sm:w-44">
+              <SelectValue placeholder="Warehouse" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All warehouses</SelectItem>
+              {sortedWarehouses.map((w) => (
+                <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={dateFilter} onValueChange={(v) => setDateFilter(v as DateFilter)}>
+            <SelectTrigger className="w-full sm:w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All time</SelectItem>
+              <SelectItem value="7">Last 7 days</SelectItem>
+              <SelectItem value="30">Last 30 days</SelectItem>
+              <SelectItem value="90">Last 90 days</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
@@ -62,7 +135,9 @@ export function InventoryHistoryView({ inv }: Props) {
           <TableBody>
             {filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">No transactions found</TableCell>
+                <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
+                  {transactions.length ? 'No transactions match these filters' : 'No transactions found'}
+                </TableCell>
               </TableRow>
             )}
             {filtered.map((t) => (

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { format } from 'date-fns'
-import { ExternalLink, Trash2, Plus } from 'lucide-react'
+import { format, subDays } from 'date-fns'
+import { ExternalLink, Trash2, Plus, Search } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -17,6 +17,8 @@ import type { InventoryTransaction } from '@/types/inventory'
 type Inv = ReturnType<typeof useInventory>
 interface Props { inv: Inv }
 
+type DateFilter = 'all' | '7' | '30' | '90'
+
 export function ReceivingsView({ inv }: Props) {
   const { transactions, allItems, warehouses, receiveStockBatch, deleteReceiving, loading } = inv
   const [_deleting, setDeleting] = useState<string | null>(null)
@@ -25,15 +27,33 @@ export function ReceivingsView({ inv }: Props) {
   const [warehouseId, setWarehouseId] = useState('')
   const [bolNumber, setBolNumber] = useState('')
   const [lines, setLines] = useState<PickedProductLine[]>([])
+  const [search, setSearch] = useState('')
+  const [warehouseFilter, setWarehouseFilter] = useState('all')
+  const [dateFilter, setDateFilter] = useState<DateFilter>('all')
 
   const sortedWarehouses = useMemo(
     () => [...warehouses].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
     [warehouses]
   )
 
-  const receivings = transactions.filter((t) =>
-    ['receive', 'opening_balance'].includes(t.type)
-  )
+  const receivings = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const since =
+      dateFilter === 'all' ? null : subDays(new Date(), Number(dateFilter))
+
+    return transactions.filter((t) => {
+      if (!['receive', 'opening_balance'].includes(t.type)) return false
+      if (warehouseFilter !== 'all' && t.warehouseId !== warehouseFilter) return false
+      if (since && new Date(t.date) < since) return false
+      if (!q) return true
+      return (
+        t.itemName.toLowerCase().includes(q) ||
+        t.itemSku.toLowerCase().includes(q) ||
+        t.bolNumber.toLowerCase().includes(q) ||
+        t.warehouseName.toLowerCase().includes(q)
+      )
+    })
+  }, [transactions, search, warehouseFilter, dateFilter])
 
   const grouped = receivings.reduce<Record<string, InventoryTransaction[]>>((acc, t) => {
     const key = `${t.bolNumber}__${format(new Date(t.date), 'yyyy-MM-dd')}`
@@ -93,7 +113,7 @@ export function ReceivingsView({ inv }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-6 border-b bg-background sticky top-0 z-10">
+      <div className="p-6 border-b bg-background sticky top-0 z-10 space-y-3">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">Receivings</h1>
@@ -103,11 +123,48 @@ export function ReceivingsView({ inv }: Props) {
             <Plus className="h-4 w-4 mr-1" />Receive Stock
           </Button>
         </div>
+        <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[180px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search BOL, item, or warehouse..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <Select value={warehouseFilter} onValueChange={setWarehouseFilter}>
+            <SelectTrigger className="w-full sm:w-44">
+              <SelectValue placeholder="Warehouse" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All warehouses</SelectItem>
+              {sortedWarehouses.map((w) => (
+                <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={dateFilter} onValueChange={(v) => setDateFilter(v as DateFilter)}>
+            <SelectTrigger className="w-full sm:w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All time</SelectItem>
+              <SelectItem value="7">Last 7 days</SelectItem>
+              <SelectItem value="30">Last 30 days</SelectItem>
+              <SelectItem value="90">Last 90 days</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto p-6 space-y-6">
         {Object.keys(grouped).length === 0 && (
-          <div className="text-center py-12 text-muted-foreground">No receivings found</div>
+          <div className="text-center py-12 text-muted-foreground">
+            {transactions.some((t) => ['receive', 'opening_balance'].includes(t.type))
+              ? 'No receivings match these filters'
+              : 'No receivings found'}
+          </div>
         )}
         {Object.entries(grouped).map(([key, txs]) => {
           const [bol, date] = key.split('__')

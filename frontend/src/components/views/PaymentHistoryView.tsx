@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { format } from 'date-fns'
-import { Download } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { format, subDays } from 'date-fns'
+import { Download, Search } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatCurrency } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -11,19 +12,39 @@ import { toast } from 'sonner'
 type Inv = ReturnType<typeof useInventory>
 interface Props { inv: Inv }
 
+type DateFilter = 'all' | '7' | '30' | '90'
+
 export function PaymentHistoryView({ inv }: Props) {
   const { payments, orders, loading } = inv
   const [search, setSearch] = useState('')
+  const [dateFilter, setDateFilter] = useState<DateFilter>('all')
+  const [methodFilter, setMethodFilter] = useState('all')
 
-  const enriched = payments.map((p) => {
-    const order = orders.find((o) => o.id === p.orderId)
-    return { ...p, shopName: order?.shopName ?? 'Unknown' }
-  })
-
-  const filtered = enriched.filter((p) =>
-    p.shopName.toLowerCase().includes(search.toLowerCase()) ||
-    p.method.toLowerCase().includes(search.toLowerCase())
+  const enriched = useMemo(
+    () =>
+      payments.map((p) => {
+        const order = orders.find((o) => o.id === p.orderId)
+        return { ...p, shopName: order?.shopName ?? 'Unknown' }
+      }),
+    [payments, orders]
   )
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const since =
+      dateFilter === 'all' ? null : subDays(new Date(), Number(dateFilter))
+
+    return enriched.filter((p) => {
+      if (methodFilter !== 'all' && p.method !== methodFilter) return false
+      if (since && new Date(p.paymentDate) < since) return false
+      if (!q) return true
+      return (
+        p.shopName.toLowerCase().includes(q) ||
+        p.method.toLowerCase().includes(q) ||
+        (p.note || '').toLowerCase().includes(q)
+      )
+    })
+  }, [enriched, search, dateFilter, methodFilter])
 
   const handleExport = () => {
     try {
@@ -54,18 +75,48 @@ export function PaymentHistoryView({ inv }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-6 border-b bg-background sticky top-0 z-10">
-        <div className="flex items-center justify-between mb-4">
+      <div className="p-6 border-b bg-background sticky top-0 z-10 space-y-3">
+        <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Payment History</h1>
           <Button variant="outline" size="sm" onClick={handleExport}>
             <Download className="h-4 w-4 mr-1" />Export
           </Button>
         </div>
-        <Input
-          placeholder="Search by shop or method..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[180px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by shop, method, or note..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <Select value={methodFilter} onValueChange={setMethodFilter}>
+            <SelectTrigger className="w-full sm:w-36">
+              <SelectValue placeholder="Method" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All methods</SelectItem>
+              <SelectItem value="cash">Cash</SelectItem>
+              <SelectItem value="check">Check</SelectItem>
+              <SelectItem value="card">Card</SelectItem>
+              <SelectItem value="ach">ACH / Wire</SelectItem>
+              <SelectItem value="other">Other</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={dateFilter} onValueChange={(v) => setDateFilter(v as DateFilter)}>
+            <SelectTrigger className="w-full sm:w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All time</SelectItem>
+              <SelectItem value="7">Last 7 days</SelectItem>
+              <SelectItem value="30">Last 30 days</SelectItem>
+              <SelectItem value="90">Last 90 days</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto">
@@ -82,7 +133,9 @@ export function PaymentHistoryView({ inv }: Props) {
           <TableBody>
             {filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">No payments found</TableCell>
+                <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
+                  {payments.length ? 'No payments match these filters' : 'No payments found'}
+                </TableCell>
               </TableRow>
             )}
             {filtered.map((p) => (

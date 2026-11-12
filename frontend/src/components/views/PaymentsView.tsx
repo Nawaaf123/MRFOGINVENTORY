@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { format } from 'date-fns'
-import { ChevronDown, ChevronRight, Store, DollarSign, FileText } from 'lucide-react'
+import { format, subDays } from 'date-fns'
+import { ChevronDown, ChevronRight, Store, DollarSign, FileText, Search } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -17,6 +17,9 @@ import type { Order, Payment } from '@/types/inventory'
 
 type Inv = ReturnType<typeof useInventory>
 interface Props { inv: Inv }
+
+type DateFilter = 'all' | '7' | '30' | '90'
+type StatusFilter = 'all' | 'open' | 'paid'
 
 function getOrderTotal(order: Order): number {
   return order.items.reduce((s, i) => s + i.quantity * i.unitPrice, 0) + (order.shippingFee || 0)
@@ -50,6 +53,9 @@ type ShopGroup = {
 export function PaymentsView({ inv }: Props) {
   const { orders, payments, wholesalers, addPayment, loading } = inv
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [dateFilter, setDateFilter] = useState<DateFilter>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [payOpen, setPayOpen] = useState(false)
   const [payShop, setPayShop] = useState<string | null>(null)
   const [payOrderId, setPayOrderId] = useState<string>('')
@@ -59,7 +65,17 @@ export function PaymentsView({ inv }: Props) {
   const [saving, setSaving] = useState(false)
 
   const groups = useMemo(() => {
-    const activeOrders = orders.filter((o) => o.status !== 'cancelled')
+    const q = search.trim().toLowerCase()
+    const since =
+      dateFilter === 'all' ? null : subDays(new Date(), Number(dateFilter))
+    const activeOrders = orders.filter((o) => {
+      if (o.status === 'cancelled') return false
+      if (q && !o.shopName.toLowerCase().includes(q) && !invoiceNumber(o).toLowerCase().includes(q)) {
+        return false
+      }
+      if (since && new Date(o.date) < since) return false
+      return true
+    })
     const map: Record<string, ShopGroup> = {}
 
     for (const order of activeOrders) {
@@ -68,6 +84,9 @@ export function PaymentsView({ inv }: Props) {
       const pending = Math.max(0, amount - paid)
       const status: InvoiceRow['status'] =
         pending <= 0.001 ? 'paid' : paid > 0 ? 'partial' : 'unpaid'
+
+      if (statusFilter === 'open' && pending <= 0.001) continue
+      if (statusFilter === 'paid' && pending > 0.001) continue
 
       if (!map[order.shopName]) {
         map[order.shopName] = {
@@ -99,7 +118,7 @@ export function PaymentsView({ inv }: Props) {
       if (b.pending !== a.pending) return b.pending - a.pending
       return a.shop.localeCompare(b.shop)
     })
-  }, [orders, payments])
+  }, [orders, payments, search, dateFilter, statusFilter])
 
   const openPayForShop = (shop: string) => {
     const group = groups.find((g) => g.shop === shop)
@@ -159,11 +178,45 @@ export function PaymentsView({ inv }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-6 border-b bg-background sticky top-0 z-10">
-        <h1 className="text-2xl font-bold">Payments</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Invoices and balances by wholesaler
-        </p>
+      <div className="p-6 border-b bg-background sticky top-0 z-10 space-y-3">
+        <div>
+          <h1 className="text-2xl font-bold">Payments</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Invoices and balances by wholesaler
+          </p>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[180px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search shop or invoice #..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
+            <SelectTrigger className="w-full sm:w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="open">Open</SelectItem>
+              <SelectItem value="paid">Paid</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={dateFilter} onValueChange={(v) => setDateFilter(v as DateFilter)}>
+            <SelectTrigger className="w-full sm:w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All time</SelectItem>
+              <SelectItem value="7">Last 7 days</SelectItem>
+              <SelectItem value="30">Last 30 days</SelectItem>
+              <SelectItem value="90">Last 90 days</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto p-4 sm:p-6 space-y-3 bg-muted/30">
@@ -326,7 +379,9 @@ export function PaymentsView({ inv }: Props) {
 
         {groups.length === 0 && (
           <div className="text-center py-16 text-muted-foreground bg-background rounded-lg border">
-            No invoices yet — create orders first
+            {orders.some((o) => o.status !== 'cancelled')
+              ? 'No invoices match these filters'
+              : 'No invoices yet — create orders first'}
           </div>
         )}
       </div>

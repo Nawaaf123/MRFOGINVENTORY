@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, Search } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,9 +21,16 @@ export function WholesalersView({ inv }: Props) {
   const [editing, setEditing] = useState<Wholesaler | null>(null)
   const [form, setForm] = useState(emptyForm)
 
-  const filtered = wholesalers.filter((w) =>
-    w.name.toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = wholesalers.filter((w) => {
+    const q = search.trim().toLowerCase()
+    if (!q) return true
+    return (
+      w.name.toLowerCase().includes(q) ||
+      w.contactPerson.toLowerCase().includes(q) ||
+      w.phone.toLowerCase().includes(q) ||
+      w.email.toLowerCase().includes(q)
+    )
+  })
 
   const handleOpen = (w?: Wholesaler) => {
     if (w) {
@@ -72,7 +79,15 @@ export function WholesalersView({ inv }: Props) {
             <Plus className="h-4 w-4 mr-1" />Add
           </Button>
         </div>
-        <Input placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search name, contact, phone, or email..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto p-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-4 content-start">
