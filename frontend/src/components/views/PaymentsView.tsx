@@ -171,12 +171,19 @@ export function PaymentsView({ inv }: Props) {
           const isOpen = expanded === group.shop
           return (
             <Card key={group.shop} className="overflow-hidden shadow-sm">
-              <div className="p-4 flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  className="flex items-center gap-3 flex-1 min-w-[200px] text-left"
-                  onClick={() => setExpanded((s) => (s === group.shop ? null : group.shop))}
-                >
+              <div
+                role="button"
+                tabIndex={0}
+                className="p-4 flex flex-wrap items-center gap-3 cursor-pointer hover:bg-muted/40 transition-colors"
+                onClick={() => setExpanded((s) => (s === group.shop ? null : group.shop))}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    setExpanded((s) => (s === group.shop ? null : group.shop))
+                  }
+                }}
+              >
+                <div className="flex items-center gap-3 flex-1 min-w-[200px] text-left">
                   {isOpen ? (
                     <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
                   ) : (
@@ -203,7 +210,7 @@ export function PaymentsView({ inv }: Props) {
                       )}
                     </div>
                   </div>
-                </button>
+                </div>
 
                 <div className="flex items-center gap-6 ml-auto">
                   <div className="text-right">
@@ -223,7 +230,10 @@ export function PaymentsView({ inv }: Props) {
                     size="sm"
                     className="bg-rose-600 hover:bg-rose-700 text-white"
                     disabled={group.pending <= 0}
-                    onClick={() => openPayForShop(group.shop)}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      openPayForShop(group.shop)
+                    }}
                   >
                     <DollarSign className="h-3.5 w-3.5 mr-0.5" />
                     Pay
