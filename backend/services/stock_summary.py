@@ -39,7 +39,7 @@ class LedgerEntry:
     type: str
     quantity: int
     signed_quantity: int
-    remaining_after: int
+    remaining_after: Optional[int]
     date: datetime
     warehouse_id: Optional[str]
     warehouse_name: Optional[str]
@@ -243,11 +243,14 @@ def build_item_summary(
             received, sold, returned, e["type"], e["signed_quantity"]
         )
 
-    running = implied_opening
+    # Running Remaining is only meaningful for a single warehouse.
+    # In all-warehouses mode a combined walk mixes locations and misleads.
+    track_running = warehouse_filter is not None
+    running = implied_opening if track_running else 0
     ledger: list[LedgerEntry] = []
 
     if include_ledger:
-        if implied_opening != 0:
+        if track_running and implied_opening != 0:
             ledger.append(
                 LedgerEntry(
                     id=f"implied-opening-{item_id}",
@@ -263,14 +266,17 @@ def build_item_summary(
             )
 
         for e in signed_entries:
-            running += e["signed_quantity"]
+            remaining_after: Optional[int] = None
+            if track_running:
+                running += e["signed_quantity"]
+                remaining_after = max(0, running)
             ledger.append(
                 LedgerEntry(
                     id=e["id"],
                     type=e["type"],
                     quantity=e["quantity"],
                     signed_quantity=e["signed_quantity"],
-                    remaining_after=max(0, running),
+                    remaining_after=remaining_after,
                     date=e["date"],
                     warehouse_id=e["warehouse_id"],
                     warehouse_name=e["warehouse_name"],

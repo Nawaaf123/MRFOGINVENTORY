@@ -229,7 +229,8 @@ class StockSummaryLedgerEntry(BaseModel):
     type: str
     quantity: int
     signed_quantity: int
-    remaining_after: int
+    # Null in all-warehouses mode — combined running remaining is misleading
+    remaining_after: Optional[int] = None
     date: datetime
     warehouse_id: Optional[UUID] = None
     warehouse_name: Optional[str] = None

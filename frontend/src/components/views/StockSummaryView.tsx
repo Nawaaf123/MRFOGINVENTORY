@@ -19,7 +19,8 @@ interface LedgerEntry {
   type: string
   quantity: number
   signedQuantity: number
-  remainingAfter: number
+  /** Only set when a single warehouse is selected */
+  remainingAfter?: number | null
   date: string
   warehouseId?: string | null
   warehouseName?: string | null
@@ -96,6 +97,7 @@ export function StockSummaryView({ inv }: Props) {
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [ledgerLoading, setLedgerLoading] = useState(false)
+  const singleWarehouse = warehouseId !== 'all'
 
   const sortedWarehouses = useMemo(
     () => [...warehouses].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
@@ -234,7 +236,9 @@ export function StockSummaryView({ inv }: Props) {
         <div>
           <h1 className="text-2xl font-bold">Stock Summary</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Forward ledger that closes at live warehouse stock
+            {singleWarehouse
+              ? 'Showing one warehouse — Remaining and the running ledger are for that location only.'
+              : 'All warehouses — totals and movements company-wide. Pick a warehouse for a real running Remaining.'}
           </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
@@ -320,7 +324,9 @@ export function StockSummaryView({ inv }: Props) {
             </CardHeader>
             <CardContent>
               <p className="text-2xl font-bold">{totals.remaining}</p>
-              <p className="text-xs text-muted-foreground mt-1">Live warehouse stock</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {singleWarehouse ? 'This warehouse’s live stock' : 'Company total (all warehouses)'}
+              </p>
             </CardContent>
           </Card>
         </div>
@@ -383,12 +389,19 @@ export function StockSummaryView({ inv }: Props) {
                           <TableRow>
                             <TableCell colSpan={7} className="bg-muted/30 p-4">
                               <div className="space-y-4">
-                                {warehouseId === 'all' && item.warehouseBreakdown.length > 0 && (
+                                {item.warehouseBreakdown.length > 0 && (
                                   <div>
-                                    <p className="text-sm font-medium mb-2">Per warehouse</p>
+                                    <p className="text-sm font-medium mb-2">By warehouse</p>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                                       {item.warehouseBreakdown.map((w) => (
-                                        <div key={w.warehouseId} className="rounded-md border bg-background p-3 text-sm">
+                                        <div
+                                          key={w.warehouseId}
+                                          className={`rounded-md border bg-background p-3 text-sm ${
+                                            singleWarehouse && w.warehouseId === warehouseId
+                                              ? 'ring-2 ring-primary/40'
+                                              : ''
+                                          }`}
+                                        >
                                           <p className="font-medium">{w.warehouseName}</p>
                                           <p className="text-muted-foreground text-xs mt-1">
                                             Rec {w.received} · Sold {w.sold} · Ret {w.returned ?? 0} · Rem {w.remaining}
@@ -399,16 +412,21 @@ export function StockSummaryView({ inv }: Props) {
                                   </div>
                                 )}
                                 <div>
-                                  <p className="text-sm font-medium mb-2">
-                                    Ledger (newest first)
-                                    {item.impliedOpening !== 0 && (
+                                  <p className="text-sm font-medium mb-1">
+                                    Movements (newest first)
+                                    {singleWarehouse && item.impliedOpening !== 0 && (
                                       <span className="text-muted-foreground font-normal">
                                         {' '}· implied opening {item.impliedOpening}
                                       </span>
                                     )}
                                   </p>
+                                  <p className="text-xs text-muted-foreground mb-2">
+                                    {singleWarehouse
+                                      ? 'Running Remaining is this warehouse’s stock after each line.'
+                                      : 'Company-wide timeline. Transfers show as Out in one warehouse and In in another. Select a warehouse for a running Remaining.'}
+                                  </p>
                                   {ledgerLoading && expanded === item.itemId && !(item.ledger?.length) ? (
-                                    <p className="text-sm text-muted-foreground">Loading ledger...</p>
+                                    <p className="text-sm text-muted-foreground">Loading movements...</p>
                                   ) : (item.ledger?.length ?? 0) === 0 ? (
                                     <p className="text-sm text-muted-foreground">No movements recorded</p>
                                   ) : (
@@ -421,7 +439,9 @@ export function StockSummaryView({ inv }: Props) {
                                             <TableHead>Source</TableHead>
                                             <TableHead>Warehouse</TableHead>
                                             <TableHead className="text-right">Qty</TableHead>
-                                            <TableHead className="text-right">Remaining</TableHead>
+                                            {singleWarehouse && (
+                                              <TableHead className="text-right">Remaining</TableHead>
+                                            )}
                                           </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -456,9 +476,11 @@ export function StockSummaryView({ inv }: Props) {
                                                 {row.signedQuantity > 0 ? '+' : ''}
                                                 {row.signedQuantity}
                                               </TableCell>
-                                              <TableCell className="text-right font-semibold">
-                                                {row.remainingAfter}
-                                              </TableCell>
+                                              {singleWarehouse && (
+                                                <TableCell className="text-right font-semibold">
+                                                  {row.remainingAfter ?? '—'}
+                                                </TableCell>
+                                              )}
                                             </TableRow>
                                           ))}
                                         </TableBody>
