@@ -28,6 +28,12 @@ async function handleResponse<T>(res: Response): Promise<T> {
   }
   if (!res.ok) {
     const text = await res.text()
+    try {
+      const parsed = JSON.parse(text) as { detail?: string | { msg?: string }[] }
+      if (typeof parsed.detail === 'string') throw new Error(parsed.detail)
+    } catch (err) {
+      if (err instanceof Error && err.message !== text) throw err
+    }
     throw new Error(text || res.statusText)
   }
   const contentType = res.headers.get('content-type')

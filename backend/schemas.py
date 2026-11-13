@@ -181,6 +181,39 @@ class StockTransferRequest(BaseModel):
     quantity: int
 
 
+class StockReceiveLine(BaseModel):
+    item_id: UUID
+    quantity: int
+
+
+class StockReceiveBatchRequest(BaseModel):
+    warehouse_id: UUID
+    bol_number: str
+    bol_document_url: Optional[str] = None
+    items: List[StockReceiveLine]
+
+
+class StockTransferLine(BaseModel):
+    item_id: UUID
+    quantity: int
+
+
+class StockTransferBatchRequest(BaseModel):
+    from_warehouse_id: UUID
+    to_warehouse_id: UUID
+    items: List[StockTransferLine]
+
+
+class StockAdjustLine(BaseModel):
+    item_id: UUID
+    quantity: int
+
+
+class StockAdjustBatchRequest(BaseModel):
+    warehouse_id: UUID
+    items: List[StockAdjustLine]
+
+
 class StockDelta(BaseModel):
     item_id: UUID
     warehouse_id: UUID
@@ -189,6 +222,51 @@ class StockDelta(BaseModel):
 
 class ApplyDeltasRequest(BaseModel):
     changes: List[StockDelta]
+
+
+class StockSummaryLedgerEntry(BaseModel):
+    id: str
+    type: str
+    quantity: int
+    signed_quantity: int
+    # Null in all-warehouses mode — combined running remaining is misleading
+    remaining_after: Optional[int] = None
+    date: datetime
+    warehouse_id: Optional[UUID] = None
+    warehouse_name: Optional[str] = None
+    source: Optional[str] = None
+    bol_number: Optional[str] = None
+    bol_document_url: Optional[str] = None
+
+
+class StockSummaryWarehouseBreakdown(BaseModel):
+    warehouse_id: UUID
+    warehouse_name: str
+    received: int
+    sold: int
+    returned: int = 0
+    remaining: int
+
+
+class StockSummaryItem(BaseModel):
+    item_id: UUID
+    item_name: str
+    item_sku: str
+    category: Optional[str] = None
+    sub_category: Optional[str] = None
+    current_stock: int
+    received: int
+    sold: int
+    returned: int = 0
+    remaining: int
+    implied_opening: int
+    warehouse_breakdown: List[StockSummaryWarehouseBreakdown] = []
+    ledger: List[StockSummaryLedgerEntry] = []
+
+
+class StockSummaryResponse(BaseModel):
+    warehouse_id: Optional[UUID] = None
+    items: List[StockSummaryItem]
 
 
 # ── Transactions ──────────────────────────────────────────────────────────────
@@ -200,6 +278,7 @@ class TransactionOut(BaseModel):
     quantity: int
     bol_number: Optional[str]
     bol_document_url: Optional[str]
+    note: Optional[str] = None
     type: str
     created_at: datetime
     item_name: Optional[str] = None
@@ -260,8 +339,32 @@ class OrderOut(BaseModel):
     cancelled_reason: Optional[str]
     created_at: datetime
     items: List[OrderItemOut] = []
+    # Present on list/summary responses so UIs need not download every line
+    cases: Optional[int] = None
+    product_count: Optional[int] = None
+    subtotal: Optional[Decimal] = None
 
     model_config = {"from_attributes": True}
+
+
+class PageMeta(BaseModel):
+    total: int
+    limit: int
+    offset: int
+
+
+class OrderPage(BaseModel):
+    items: List[OrderOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class TransactionPage(BaseModel):
+    items: List[TransactionOut]
+    total: int
+    limit: int
+    offset: int
 
 
 class OrderUpdate(BaseModel):

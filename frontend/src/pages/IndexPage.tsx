@@ -38,9 +38,9 @@ export function IndexPage() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-dvh max-h-dvh overflow-hidden bg-background">
       <Sidebar activeView={activeView} onViewChange={setActiveView} />
-      <main className="flex-1 overflow-hidden flex flex-col">
+      <main className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">
         {renderView()}
       </main>
     </div>

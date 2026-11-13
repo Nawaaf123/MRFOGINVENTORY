@@ -1,49 +1,133 @@
-import { useMemo } from 'react'
-import { AlertTriangle, CheckCircle } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, CheckCircle, Search } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { apiGet } from '@/lib/api'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { PageHeader, TableScroll } from '@/components/layout/PageShell'
+import { toast } from 'sonner'
 
 type Inv = ReturnType<typeof useInventory>
 interface Props { inv: Inv }
 
+type DriftRow = {
+  itemId: string
+  itemName: string
+  itemSku: string
+  warehouseId: string
+  warehouseName: string
+  currentStock: number
+  txSum: number
+  drift: number
+}
+
 export function DriftMonitorView({ inv }: Props) {
-  const { allItems, transactions, warehouses, loading } = inv
+  const { warehouses } = inv
+  const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [warehouseFilter, setWarehouseFilter] = useState('all')
+  const [showFilter, setShowFilter] = useState<'drift' | 'all'>('drift')
+  const [rows, setRows] = useState<DriftRow[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const drifts = useMemo(() => {
-    return allItems.map((item) => {
-      const results = warehouses.map((w) => {
-        const currentStock = item.stock.find((s) => s.warehouseId === w.id)?.quantity ?? 0
-        const txSum = transactions
-          .filter((t) => t.itemId === item.id && t.warehouseId === w.id)
-          .reduce((s, t) => s + t.quantity, 0)
-        const drift = currentStock - txSum
-        return { warehouseId: w.id, warehouseName: w.name, currentStock, txSum, drift }
-      })
-      const hasDrift = results.some((r) => r.drift !== 0)
-      return { item, results, hasDrift }
-    })
-  }, [allItems, transactions, warehouses])
+  const sortedWarehouses = useMemo(
+    () => [...warehouses].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
+    [warehouses]
+  )
 
-  const driftCount = drifts.filter((d) => d.hasDrift).length
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 250)
+    return () => clearTimeout(t)
+  }, [search])
 
-  if (loading) return <div className="p-6 text-muted-foreground">Loading...</div>
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams()
+      params.set('only_drift', showFilter === 'drift' ? 'true' : 'false')
+      if (warehouseFilter !== 'all') params.set('warehouse_id', warehouseFilter)
+      if (debouncedSearch) params.set('q', debouncedSearch)
+      const data = await apiGet<{ items: DriftRow[] }>(`/api/stock/drift?${params.toString()}`)
+      setRows(data.items ?? [])
+    } catch {
+      toast.error('Failed to load drift report')
+      setRows([])
+    } finally {
+      setLoading(false)
+    }
+  }, [warehouseFilter, showFilter, debouncedSearch])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const driftCount = useMemo(
+    () => new Set(rows.filter((r) => r.drift !== 0).map((r) => r.itemId)).size,
+    [rows]
+  )
+
+  const grouped = useMemo(() => {
+    const map: Record<string, { itemName: string; itemSku: string; results: DriftRow[]; hasDrift: boolean }> = {}
+    for (const r of rows) {
+      if (!map[r.itemId]) {
+        map[r.itemId] = { itemName: r.itemName, itemSku: r.itemSku, results: [], hasDrift: false }
+      }
+      map[r.itemId].results.push(r)
+      if (r.drift !== 0) map[r.itemId].hasDrift = true
+    }
+    return Object.entries(map)
+  }, [rows])
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-6 border-b bg-background sticky top-0 z-10">
-        <h1 className="text-2xl font-bold">Drift Monitor</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Compare current stock vs transaction log sums
-        </p>
-      </div>
+    <div className="flex flex-col h-full min-h-0">
+      <PageHeader className="space-y-3">
+        <div>
+          <h1 className="text-2xl font-bold">Drift Monitor</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Compare current stock vs transaction log sums (includes sales, receives, transfers, cancels, adjusts)
+          </p>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[180px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search item or SKU..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <Select value={warehouseFilter} onValueChange={setWarehouseFilter}>
+            <SelectTrigger className="w-full sm:w-44">
+              <SelectValue placeholder="Warehouse" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All warehouses</SelectItem>
+              {sortedWarehouses.map((w) => (
+                <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={showFilter} onValueChange={(v) => setShowFilter(v as 'drift' | 'all')}>
+            <SelectTrigger className="w-full sm:w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="drift">Drift only</SelectItem>
+              <SelectItem value="all">All items</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </PageHeader>
 
-      <div className="flex-1 overflow-auto p-6 space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+      <div className="flex-1 overflow-auto min-h-0 p-4 sm:p-6 space-y-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4">
           <Card>
             <CardContent className="p-4 flex items-center gap-3">
-              <AlertTriangle className="h-8 w-8 text-destructive" />
+              <AlertTriangle className="h-8 w-8 text-destructive shrink-0" />
               <div>
                 <p className="text-2xl font-bold">{driftCount}</p>
                 <p className="text-sm text-muted-foreground">Items with drift</p>
@@ -52,59 +136,95 @@ export function DriftMonitorView({ inv }: Props) {
           </Card>
           <Card>
             <CardContent className="p-4 flex items-center gap-3">
-              <CheckCircle className="h-8 w-8 text-green-500" />
+              <CheckCircle className="h-8 w-8 text-green-600 shrink-0" />
               <div>
-                <p className="text-2xl font-bold">{allItems.length - driftCount}</p>
-                <p className="text-sm text-muted-foreground">Items in sync</p>
+                <p className="text-2xl font-bold">{grouped.length}</p>
+                <p className="text-sm text-muted-foreground">Items shown</p>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {drifts.filter((d) => d.hasDrift).length === 0 ? (
-          <Card>
-            <CardContent className="p-8 text-center text-muted-foreground">
-              <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
-              <p className="font-medium">All stock values match transaction logs</p>
-            </CardContent>
-          </Card>
+        {loading ? (
+          <div className="text-center py-12 text-muted-foreground">Calculating drift...</div>
+        ) : grouped.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">No drift found</div>
         ) : (
-          <Card>
-            <CardHeader><CardTitle className="text-base">Drift Detected</CardTitle></CardHeader>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Item</TableHead>
-                    <TableHead>Warehouse</TableHead>
-                    <TableHead>Current</TableHead>
-                    <TableHead>TX Sum</TableHead>
-                    <TableHead>Drift</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {drifts.filter((d) => d.hasDrift).map(({ item, results }) =>
-                    results.filter((r) => r.drift !== 0).map((r) => (
-                      <TableRow key={`${item.id}-${r.warehouseId}`}>
-                        <TableCell>
-                          <p className="font-medium text-sm">{item.name}</p>
-                          <p className="text-xs text-muted-foreground">{item.sku}</p>
-                        </TableCell>
-                        <TableCell className="text-sm">{r.warehouseName}</TableCell>
-                        <TableCell>{r.currentStock}</TableCell>
-                        <TableCell>{r.txSum}</TableCell>
-                        <TableCell>
-                          <Badge variant={r.drift > 0 ? 'secondary' : 'destructive'}>
-                            {r.drift > 0 ? '+' : ''}{r.drift}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+          <>
+            {/* Mobile cards */}
+            <div className="md:hidden space-y-3">
+              {grouped.map(([itemId, g]) =>
+                g.results.map((r) => (
+                  <Card key={`${itemId}-${r.warehouseId}`}>
+                    <CardContent className="p-4 space-y-2">
+                      <div>
+                        <p className="font-semibold">{g.itemName}</p>
+                        <p className="text-xs font-mono text-muted-foreground">{g.itemSku}</p>
+                      </div>
+                      <p className="text-sm text-muted-foreground">{r.warehouseName}</p>
+                      <div className="grid grid-cols-3 gap-2 text-sm">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Stock</p>
+                          <p className="font-medium tabular-nums">{r.currentStock}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Tx sum</p>
+                          <p className="font-medium tabular-nums">{r.txSum}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Drift</p>
+                          {r.drift === 0 ? (
+                            <Badge variant="secondary">0</Badge>
+                          ) : (
+                            <Badge variant="destructive">{r.drift > 0 ? `+${r.drift}` : r.drift}</Badge>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
+
+            {/* Desktop table */}
+            <div className="hidden md:block">
+              <TableScroll>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Item</TableHead>
+                      <TableHead>Warehouse</TableHead>
+                      <TableHead className="text-right">Stock</TableHead>
+                      <TableHead className="text-right">Tx sum</TableHead>
+                      <TableHead className="text-right">Drift</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {grouped.map(([itemId, g]) =>
+                      g.results.map((r) => (
+                        <TableRow key={`${itemId}-${r.warehouseId}`}>
+                          <TableCell>
+                            <p className="font-medium text-sm">{g.itemName}</p>
+                            <p className="text-xs text-muted-foreground">{g.itemSku}</p>
+                          </TableCell>
+                          <TableCell>{r.warehouseName}</TableCell>
+                          <TableCell className="text-right tabular-nums">{r.currentStock}</TableCell>
+                          <TableCell className="text-right tabular-nums">{r.txSum}</TableCell>
+                          <TableCell className="text-right">
+                            {r.drift === 0 ? (
+                              <Badge variant="secondary">0</Badge>
+                            ) : (
+                              <Badge variant="destructive">{r.drift > 0 ? `+${r.drift}` : r.drift}</Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </TableScroll>
+            </div>
+          </>
         )}
       </div>
     </div>

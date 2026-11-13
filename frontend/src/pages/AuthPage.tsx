@@ -28,13 +28,13 @@ export function AuthPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 to-primary/10 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white via-rose-50 to-rose-100 p-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground text-2xl font-bold mb-4">
+          <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground text-2xl font-bold mb-4 shadow-sm">
             MF
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">MR FOG</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-primary">Mr. Fog</h1>
           <p className="text-muted-foreground mt-1">Inventory Management System</p>
         </div>
 

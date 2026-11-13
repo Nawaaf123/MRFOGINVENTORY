@@ -11,8 +11,8 @@ export function downloadInventorySheet(
   const doc = new jsPDF({ orientation: 'landscape' })
 
   doc.setFontSize(18)
-  doc.setTextColor(20, 130, 110)
-  doc.text('MR FOG — Inventory', 14, 18)
+  doc.setTextColor(200, 30, 45)
+  doc.text('Mr. Fog — Inventory', 14, 18)
 
   doc.setFontSize(9)
   doc.setTextColor(0)
@@ -38,7 +38,7 @@ export function downloadInventorySheet(
     head: [['SKU', 'Name', 'Category', 'Qty', 'Price']],
     body: rows,
     theme: 'grid',
-    headStyles: { fillColor: [20, 130, 110] },
+    headStyles: { fillColor: [200, 30, 45] },
   })
 
   doc.save('inventory.pdf')

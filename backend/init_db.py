@@ -40,16 +40,30 @@ async def seed_admin():
         print("✓ Admin user created: admin@stockkeeper.com / admin123")
 
 
+DEFAULT_WAREHOUSES = [
+    {"name": "Glendale", "location": "Glendale", "color": "#14b8a6", "sort_order": 0},
+    {"name": "York", "location": "York", "color": "#3b82f6", "sort_order": 1},
+    {"name": "Bensenville", "location": "Bensenville", "color": "#f59e0b", "sort_order": 2},
+    {"name": "Addison", "location": "Addison", "color": "#8b5cf6", "sort_order": 3},
+]
+
+
 async def seed_warehouse():
     from database import AsyncSessionLocal
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Warehouse))
-        if result.scalars().first():
-            print("✓ Warehouse already exists")
-            return
-        db.add(Warehouse(name="Main Warehouse", location="Primary", color="#14b8a6", sort_order=0))
-        await db.commit()
-        print("✓ Default warehouse created")
+        existing = {w.name for w in result.scalars().all()}
+        created = 0
+        for wh in DEFAULT_WAREHOUSES:
+            if wh["name"] in existing:
+                continue
+            db.add(Warehouse(**wh))
+            created += 1
+        if created:
+            await db.commit()
+            print(f"✓ Created {created} warehouse(s): Glendale, York, Bensenville, Addison")
+        else:
+            print("✓ Warehouses already exist")
 
 
 async def main():

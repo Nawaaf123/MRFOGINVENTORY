@@ -1,75 +1,619 @@
+import { useCallback, useEffect, useMemo, useState, Fragment } from 'react'
+import { format } from 'date-fns'
+import { Search, ChevronDown, ChevronRight, Filter } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
+import { apiGet } from '@/lib/api'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { getTotalQuantity } from '@/lib/utils'
+import { PageHeader, TableScroll, mobileActionClass } from '@/components/layout/PageShell'
+import { toast } from 'sonner'
 
 type Inv = ReturnType<typeof useInventory>
 interface Props { inv: Inv }
 
-export function StockSummaryView({ inv }: Props) {
-  const { allItems, warehouses, loading } = inv
+interface LedgerEntry {
+  id: string
+  type: string
+  quantity: number
+  signedQuantity: number
+  /** Only set when a single warehouse is selected */
+  remainingAfter?: number | null
+  date: string
+  warehouseId?: string | null
+  warehouseName?: string | null
+  source?: string | null
+  bolNumber?: string | null
+}
 
-  if (loading) return <div className="p-6 text-muted-foreground">Loading...</div>
+interface WarehouseBreakdown {
+  warehouseId: string
+  warehouseName: string
+  received: number
+  sold: number
+  returned: number
+  remaining: number
+}
+
+interface SummaryItem {
+  itemId: string
+  itemName: string
+  itemSku: string
+  category?: string | null
+  subCategory?: string | null
+  currentStock: number
+  received: number
+  sold: number
+  returned: number
+  remaining: number
+  impliedOpening: number
+  warehouseBreakdown: WarehouseBreakdown[]
+  ledger: LedgerEntry[]
+}
+
+interface SummaryResponse {
+  warehouseId?: string | null
+  items: SummaryItem[]
+}
+
+const typeLabels: Record<string, string> = {
+  receive: 'Receive',
+  sale: 'Sale',
+  transfer_in: 'Transfer in',
+  transfer_out: 'Transfer out',
+  opening_balance: 'Opening balance',
+  implied_opening: 'Implied opening',
+  manual_adjust: 'Manual adjust',
+  adjust: 'Adjust',
+  order_cancelled: 'Returned',
+}
+
+function saleLabel(quantity: number): string {
+  return quantity > 0 ? 'Sale void (edit)' : 'Sale'
+}
+
+const typeColors: Record<string, string> = {
+  receive: 'bg-green-100 text-green-800',
+  sale: 'bg-blue-100 text-blue-800',
+  transfer_in: 'bg-teal-100 text-teal-800',
+  transfer_out: 'bg-orange-100 text-orange-800',
+  opening_balance: 'bg-purple-100 text-purple-800',
+  implied_opening: 'bg-violet-100 text-violet-800',
+  manual_adjust: 'bg-gray-100 text-gray-800',
+  adjust: 'bg-gray-100 text-gray-800',
+  order_cancelled: 'bg-red-100 text-red-800',
+}
+
+export function StockSummaryView({ inv }: Props) {
+  const { warehouses, allItems, loading: invLoading } = inv
+  const [warehouseId, setWarehouseId] = useState('all')
+  const [categoryFilter, setCategoryFilter] = useState('all')
+  const [subCategoryFilter, setSubCategoryFilter] = useState('all')
+  const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [items, setItems] = useState<SummaryItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [expanded, setExpanded] = useState<string | null>(null)
+  const [ledgerLoading, setLedgerLoading] = useState(false)
+  const singleWarehouse = warehouseId !== 'all'
+
+  const sortedWarehouses = useMemo(
+    () => [...warehouses].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
+    [warehouses]
+  )
+
+  const uniqueCategories = useMemo(
+    () =>
+      Array.from(
+        new Set(allItems.map((i) => i.category).filter((c): c is string => Boolean(c?.trim())))
+      ).sort((a, b) => a.localeCompare(b)),
+    [allItems]
+  )
+
+  const uniqueSubCategories = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          allItems
+            .filter((i) => categoryFilter === 'all' || i.category === categoryFilter)
+            .map((i) => i.subCategory)
+            .filter((c): c is string => Boolean(c?.trim()))
+        )
+      ).sort((a, b) => a.localeCompare(b)),
+    [allItems, categoryFilter]
+  )
+
+  const handleCategoryChange = (value: string) => {
+    setCategoryFilter(value)
+    if (value !== 'all' && subCategoryFilter !== 'all') {
+      const stillValid = allItems.some(
+        (i) => i.category === value && i.subCategory === subCategoryFilter
+      )
+      if (!stillValid) setSubCategoryFilter('all')
+    }
+  }
+
+  const filteredItems = useMemo(
+    () =>
+      items.filter((item) => {
+        if (categoryFilter !== 'all' && (item.category || '') !== categoryFilter) return false
+        if (subCategoryFilter !== 'all' && (item.subCategory || '') !== subCategoryFilter) return false
+        return true
+      }),
+    [items, categoryFilter, subCategoryFilter]
+  )
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 250)
+    return () => clearTimeout(t)
+  }, [search])
+
+  const loadSummary = useCallback(async () => {
+    setLoading(true)
+    setExpanded(null)
+    try {
+      const params = new URLSearchParams()
+      params.set('include_ledger', 'false')
+      if (warehouseId !== 'all') params.set('warehouse_id', warehouseId)
+      if (debouncedSearch) params.set('q', debouncedSearch)
+      const data = await apiGet<SummaryResponse>(`/api/stock/summary?${params.toString()}`)
+      setItems((data.items ?? []).map((i) => ({ ...i, ledger: i.ledger ?? [] })))
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to load stock summary')
+      setItems([])
+    } finally {
+      setLoading(false)
+    }
+  }, [warehouseId, debouncedSearch])
+
+  useEffect(() => {
+    void loadSummary()
+  }, [loadSummary])
+
+  const loadLedger = useCallback(async (itemId: string) => {
+    setLedgerLoading(true)
+    try {
+      const params = new URLSearchParams()
+      params.set('item_id', itemId)
+      if (warehouseId !== 'all') params.set('warehouse_id', warehouseId)
+      const data = await apiGet<SummaryResponse>(`/api/stock/summary?${params.toString()}`)
+      const detail = data.items?.[0]
+      if (detail) {
+        setItems((prev) =>
+          prev.map((i) =>
+            i.itemId === itemId
+              ? {
+                  ...i,
+                  ledger: detail.ledger ?? [],
+                  warehouseBreakdown: detail.warehouseBreakdown ?? i.warehouseBreakdown,
+                  impliedOpening: detail.impliedOpening,
+                }
+              : i
+          )
+        )
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to load ledger')
+    } finally {
+      setLedgerLoading(false)
+    }
+  }, [warehouseId])
+
+  const totals = useMemo(
+    () =>
+      filteredItems.reduce(
+        (acc, i) => ({
+          received: acc.received + i.received,
+          sold: acc.sold + i.sold,
+          returned: acc.returned + (i.returned ?? 0),
+          remaining: acc.remaining + i.remaining,
+        }),
+        { received: 0, sold: 0, returned: 0, remaining: 0 }
+      ),
+    [filteredItems]
+  )
+
+  const toggle = (id: string) => {
+    setExpanded((prev) => {
+      const next = prev === id ? null : id
+      if (next) {
+        const row = filteredItems.find((i) => i.itemId === next)
+        if (!row?.ledger?.length) void loadLedger(next)
+      }
+      return next
+    })
+  }
+
+  if (invLoading) return <div className="py-4 pr-4 pl-16 sm:py-6 sm:pr-6 lg:pl-6 text-muted-foreground">Loading...</div>
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-6 border-b bg-background sticky top-0 z-10">
-        <h1 className="text-2xl font-bold">Stock Summary</h1>
-        <p className="text-muted-foreground text-sm mt-1">All stock across warehouses</p>
-      </div>
+    <div className="flex flex-col h-full min-h-0">
+      <PageHeader className="space-y-4">
+        <div>
+          <h1 className="text-2xl font-bold">Stock Summary</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            {singleWarehouse
+              ? 'Showing one warehouse — Remaining and the running ledger are for that location only.'
+              : 'All warehouses — totals and movements company-wide. Pick a warehouse for a real running Remaining.'}
+          </p>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[180px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search name or SKU..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <Select value={categoryFilter} onValueChange={handleCategoryChange}>
+            <SelectTrigger className="w-full sm:w-44">
+              <Filter className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="Category" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Categories</SelectItem>
+              {uniqueCategories.map((c) => (
+                <SelectItem key={c} value={c}>{c}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={subCategoryFilter} onValueChange={setSubCategoryFilter}>
+            <SelectTrigger className="w-full sm:w-52">
+              <SelectValue placeholder="Subcategory" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Subcategories</SelectItem>
+              {uniqueSubCategories.map((c) => (
+                <SelectItem key={c} value={c}>{c}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={warehouseId} onValueChange={setWarehouseId}>
+            <SelectTrigger className="w-full sm:w-44">
+              <SelectValue placeholder="Warehouse" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Warehouses</SelectItem>
+              {sortedWarehouses.map((w) => (
+                <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button variant="outline" className={mobileActionClass} onClick={() => void loadSummary()} disabled={loading}>
+            Refresh
+          </Button>
+        </div>
+      </PageHeader>
 
-      <div className="flex-1 overflow-auto p-6">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          {warehouses.map((w) => {
-            const total = allItems.reduce(
-              (sum, i) => sum + (i.stock.find((s) => s.warehouseId === w.id)?.quantity ?? 0),
-              0
-            )
-            return (
-              <Card key={w.id}>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">{w.name}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-2xl font-bold" style={{ color: w.color }}>{total}</p>
-                  <p className="text-xs text-muted-foreground">units</p>
-                </CardContent>
-              </Card>
-            )
-          })}
+      <div className="flex-1 overflow-auto min-h-0 p-4 sm:p-6 space-y-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Received</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold text-green-700">{totals.received}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Sold</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold text-blue-700">{totals.sold}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Returned</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold text-amber-700">{totals.returned}</p>
+              <p className="text-xs text-muted-foreground mt-1">Cancelled orders</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Remaining</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold">{totals.remaining}</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {singleWarehouse ? 'This warehouse’s live stock' : 'Company total (all warehouses)'}
+              </p>
+            </CardContent>
+          </Card>
         </div>
 
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Product</TableHead>
-                  <TableHead>SKU</TableHead>
-                  {warehouses.map((w) => <TableHead key={w.id}>{w.name}</TableHead>)}
-                  <TableHead>Total</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {allItems.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="font-medium">{item.name}</TableCell>
-                    <TableCell className="font-mono text-sm text-muted-foreground">{item.sku}</TableCell>
-                    {warehouses.map((w) => {
-                      const qty = item.stock.find((s) => s.warehouseId === w.id)?.quantity ?? 0
-                      return (
-                        <TableCell key={w.id} className={qty === 0 ? 'text-muted-foreground' : ''}>
-                          {qty}
-                        </TableCell>
-                      )
-                    })}
-                    <TableCell className="font-semibold">{getTotalQuantity(item)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        {loading ? (
+          <div className="text-muted-foreground py-8 text-center">Building ledger...</div>
+        ) : (
+          <>
+            {/* Mobile cards */}
+            <div className="md:hidden space-y-3">
+              {filteredItems.length === 0 && (
+                <div className="text-center py-12 text-muted-foreground">No products found</div>
+              )}
+              {filteredItems.map((item) => {
+                const open = expanded === item.itemId
+                return (
+                  <Card key={item.itemId}>
+                    <button
+                      type="button"
+                      className="w-full text-left p-4 flex items-start gap-3 min-h-11"
+                      onClick={() => toggle(item.itemId)}
+                    >
+                      {open ? (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground mt-1 shrink-0" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground mt-1 shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold">{item.itemName}</p>
+                        <p className="text-xs font-mono text-muted-foreground">{item.itemSku}</p>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                          <span className="text-green-700">Rec {item.received}</span>
+                          <span className="text-blue-700">Sold {item.sold}</span>
+                          <span className="text-amber-700">Ret {item.returned ?? 0}</span>
+                          <span className="font-semibold">Rem {item.remaining}</span>
+                        </div>
+                      </div>
+                    </button>
+                    {open && (
+                      <CardContent className="pt-0 space-y-4 border-t">
+                        {item.warehouseBreakdown.length > 0 && (
+                          <div className="pt-3">
+                            <p className="text-sm font-medium mb-2">By warehouse</p>
+                            <div className="grid grid-cols-1 gap-2">
+                              {item.warehouseBreakdown.map((w) => (
+                                <div
+                                  key={w.warehouseId}
+                                  className={`rounded-md border bg-background p-3 text-sm ${
+                                    singleWarehouse && w.warehouseId === warehouseId
+                                      ? 'ring-2 ring-primary/40'
+                                      : ''
+                                  }`}
+                                >
+                                  <p className="font-medium">{w.warehouseName}</p>
+                                  <p className="text-muted-foreground text-xs mt-1">
+                                    Rec {w.received} · Sold {w.sold} · Ret {w.returned ?? 0} · Rem {w.remaining}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        <div>
+                          <p className="text-sm font-medium mb-1">Movements</p>
+                          {ledgerLoading && expanded === item.itemId && !(item.ledger?.length) ? (
+                            <p className="text-sm text-muted-foreground">Loading movements...</p>
+                          ) : (item.ledger?.length ?? 0) === 0 ? (
+                            <p className="text-sm text-muted-foreground">No movements recorded</p>
+                          ) : (
+                            <div className="space-y-2">
+                              {item.ledger.map((row) => (
+                                <div key={row.id} className="rounded-md border p-3 text-sm">
+                                  <div className="flex justify-between gap-2">
+                                    <Badge variant="secondary" className={typeColors[row.type] ?? ''}>
+                                      {row.type === 'sale'
+                                        ? saleLabel(row.quantity)
+                                        : (typeLabels[row.type] ?? row.type)}
+                                    </Badge>
+                                    <span
+                                      className={`font-medium ${
+                                        row.signedQuantity > 0
+                                          ? 'text-green-700'
+                                          : row.signedQuantity < 0
+                                            ? 'text-destructive'
+                                            : ''
+                                      }`}
+                                    >
+                                      {row.signedQuantity > 0 ? '+' : ''}
+                                      {row.signedQuantity}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    {row.date ? format(new Date(row.date), 'MMM d, yyyy') : '—'}
+                                    {' · '}
+                                    {row.warehouseName || '—'}
+                                    {singleWarehouse && row.remainingAfter != null
+                                      ? ` · rem ${row.remainingAfter}`
+                                      : ''}
+                                  </p>
+                                  {(row.source || row.bolNumber) && (
+                                    <p className="text-xs truncate mt-0.5">{row.source || row.bolNumber}</p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </CardContent>
+                    )}
+                  </Card>
+                )
+              })}
+            </div>
+
+            {/* Desktop table */}
+            <Card className="hidden md:block">
+              <CardContent className="p-0">
+                <TableScroll>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-8" />
+                        <TableHead>SKU</TableHead>
+                        <TableHead>Product</TableHead>
+                        <TableHead className="text-right">Received</TableHead>
+                        <TableHead className="text-right">Sold</TableHead>
+                        <TableHead className="text-right">Returned</TableHead>
+                        <TableHead className="text-right">Remaining</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredItems.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                            No products found
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {filteredItems.map((item) => {
+                        const open = expanded === item.itemId
+                        return (
+                          <Fragment key={item.itemId}>
+                            <TableRow
+                              className="cursor-pointer"
+                              onClick={() => toggle(item.itemId)}
+                            >
+                              <TableCell>
+                                {open ? (
+                                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                ) : (
+                                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                )}
+                              </TableCell>
+                              <TableCell className="font-mono text-sm">{item.itemSku}</TableCell>
+                              <TableCell>
+                                <p className="font-medium">{item.itemName}</p>
+                                {(item.category || item.subCategory) && (
+                                  <p className="text-xs text-muted-foreground">
+                                    {[item.category, item.subCategory].filter(Boolean).join(' · ')}
+                                  </p>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right text-green-700 font-medium">{item.received}</TableCell>
+                              <TableCell className="text-right text-blue-700 font-medium">{item.sold}</TableCell>
+                              <TableCell className="text-right text-amber-700 font-medium">{item.returned ?? 0}</TableCell>
+                              <TableCell className="text-right font-semibold">{item.remaining}</TableCell>
+                            </TableRow>
+                            {open && (
+                              <TableRow>
+                                <TableCell colSpan={7} className="bg-muted/30 p-4">
+                                  <div className="space-y-4">
+                                    {item.warehouseBreakdown.length > 0 && (
+                                      <div>
+                                        <p className="text-sm font-medium mb-2">By warehouse</p>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                                          {item.warehouseBreakdown.map((w) => (
+                                            <div
+                                              key={w.warehouseId}
+                                              className={`rounded-md border bg-background p-3 text-sm ${
+                                                singleWarehouse && w.warehouseId === warehouseId
+                                                  ? 'ring-2 ring-primary/40'
+                                                  : ''
+                                              }`}
+                                            >
+                                              <p className="font-medium">{w.warehouseName}</p>
+                                              <p className="text-muted-foreground text-xs mt-1">
+                                                Rec {w.received} · Sold {w.sold} · Ret {w.returned ?? 0} · Rem {w.remaining}
+                                              </p>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                    <div>
+                                      <p className="text-sm font-medium mb-1">
+                                        Movements (newest first)
+                                        {singleWarehouse && item.impliedOpening !== 0 && (
+                                          <span className="text-muted-foreground font-normal">
+                                            {' '}· implied opening {item.impliedOpening}
+                                          </span>
+                                        )}
+                                      </p>
+                                      <p className="text-xs text-muted-foreground mb-2">
+                                        {singleWarehouse
+                                          ? 'Running Remaining is this warehouse’s stock after each line.'
+                                          : 'Company-wide timeline. Transfers show as Out in one warehouse and In in another. Select a warehouse for a running Remaining.'}
+                                      </p>
+                                      {ledgerLoading && expanded === item.itemId && !(item.ledger?.length) ? (
+                                        <p className="text-sm text-muted-foreground">Loading movements...</p>
+                                      ) : (item.ledger?.length ?? 0) === 0 ? (
+                                        <p className="text-sm text-muted-foreground">No movements recorded</p>
+                                      ) : (
+                                        <div className="rounded-md border overflow-hidden">
+                                          <TableScroll>
+                                            <Table>
+                                              <TableHeader>
+                                                <TableRow>
+                                                  <TableHead>Date</TableHead>
+                                                  <TableHead>Type</TableHead>
+                                                  <TableHead>Source</TableHead>
+                                                  <TableHead>Warehouse</TableHead>
+                                                  <TableHead className="text-right">Qty</TableHead>
+                                                  {singleWarehouse && (
+                                                    <TableHead className="text-right">Remaining</TableHead>
+                                                  )}
+                                                </TableRow>
+                                              </TableHeader>
+                                              <TableBody>
+                                                {item.ledger.map((row) => (
+                                                  <TableRow key={row.id}>
+                                                    <TableCell className="text-sm whitespace-nowrap">
+                                                      {row.date ? format(new Date(row.date), 'MMM d, yyyy') : '—'}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                      <Badge
+                                                        variant="secondary"
+                                                        className={typeColors[row.type] ?? ''}
+                                                      >
+                                                        {row.type === 'sale'
+                                                          ? saleLabel(row.quantity)
+                                                          : (typeLabels[row.type] ?? row.type)}
+                                                      </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-sm max-w-[180px] truncate">
+                                                      {row.source || row.bolNumber || '—'}
+                                                    </TableCell>
+                                                    <TableCell className="text-sm">{row.warehouseName || '—'}</TableCell>
+                                                    <TableCell
+                                                      className={`text-right font-medium ${
+                                                        row.signedQuantity > 0
+                                                          ? 'text-green-700'
+                                                          : row.signedQuantity < 0
+                                                            ? 'text-destructive'
+                                                            : ''
+                                                      }`}
+                                                    >
+                                                      {row.signedQuantity > 0 ? '+' : ''}
+                                                      {row.signedQuantity}
+                                                    </TableCell>
+                                                    {singleWarehouse && (
+                                                      <TableCell className="text-right font-semibold">
+                                                        {row.remainingAfter ?? '—'}
+                                                      </TableCell>
+                                                    )}
+                                                  </TableRow>
+                                                ))}
+                                              </TableBody>
+                                            </Table>
+                                          </TableScroll>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </Fragment>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                </TableScroll>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
     </div>
   )

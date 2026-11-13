@@ -7,8 +7,8 @@ export function downloadInvoice(order: Order, wholesaler?: Wholesaler) {
   const doc = new jsPDF()
 
   doc.setFontSize(20)
-  doc.setTextColor(20, 130, 110)
-  doc.text('MR FOG', 14, 22)
+  doc.setTextColor(200, 30, 45)
+  doc.text('Mr. Fog', 14, 22)
 
   doc.setFontSize(10)
   doc.setTextColor(100)
@@ -40,7 +40,7 @@ export function downloadInvoice(order: Order, wholesaler?: Wholesaler) {
     head: [['Product', 'SKU', 'Warehouse', 'Qty', 'Unit Price', 'Total']],
     body: rows,
     theme: 'grid',
-    headStyles: { fillColor: [20, 130, 110] },
+    headStyles: { fillColor: [200, 30, 45] },
   })
 
   const finalY = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY || 100

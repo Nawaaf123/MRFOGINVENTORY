@@ -1,16 +1,17 @@
-import { useState } from 'react'
-import { Search, Plus, Filter, Download, ArrowUpDown, Pencil } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Search, Plus, Filter, Download, ArrowUpDown, Pencil, Trash2, SlidersHorizontal, ArrowLeftRight } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { getTotalQuantity, formatCurrency } from '@/lib/utils'
+import { ProductPicker, type PickedProductLine } from '@/components/ProductPicker'
+import { PageHeader, TableScroll, mobileActionClass } from '@/components/layout/PageShell'
+import { cn, getTotalQuantity } from '@/lib/utils'
 import { downloadInventorySheet } from '@/lib/inventorySheet'
 import { toast } from 'sonner'
 import type { InventoryItem, Warehouse } from '@/types/inventory'
@@ -23,6 +24,15 @@ interface Props {
 
 export function InventoryView({ inv }: Props) {
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [adjustOpen, setAdjustOpen] = useState(false)
+  const [adjustWarehouseId, setAdjustWarehouseId] = useState('')
+  const [adjustLines, setAdjustLines] = useState<PickedProductLine[]>([])
+  const [adjustSaving, setAdjustSaving] = useState(false)
+  const [transferOpen, setTransferOpen] = useState(false)
+  const [fromWarehouseId, setFromWarehouseId] = useState('')
+  const [toWarehouseId, setToWarehouseId] = useState('')
+  const [transferLines, setTransferLines] = useState<PickedProductLine[]>([])
+  const [transferSaving, setTransferSaving] = useState(false)
   const [editing, setEditing] = useState<InventoryItem | null>(null)
   const [form, setForm] = useState({
     name: '',
@@ -35,9 +45,66 @@ export function InventoryView({ inv }: Props) {
     quantity: '0',
   })
 
-  const { items, warehouses, loading, searchQuery, setSearchQuery, categoryFilter, setCategoryFilter, warehouseFilter, setWarehouseFilter, toggleSort, addItem, updateItem, deleteItem, categories } = inv
+  const {
+    items,
+    allItems,
+    warehouses,
+    loading,
+    searchQuery,
+    setSearchQuery,
+    categoryFilter,
+    setCategoryFilter,
+    subCategoryFilter,
+    setSubCategoryFilter,
+    warehouseFilter,
+    setWarehouseFilter,
+    toggleSort,
+    addItem,
+    updateItem,
+    deleteItem,
+    adjustStockBatch,
+    transferStockBatch,
+  } = inv
 
-  const uniqueCategories = categories.map((c) => c.name)
+  const sortedWarehouses = useMemo(
+    () => [...warehouses].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
+    [warehouses]
+  )
+
+  const visibleWarehouses = useMemo(
+    () =>
+      warehouseFilter
+        ? sortedWarehouses.filter((w) => w.id === warehouseFilter)
+        : sortedWarehouses,
+    [sortedWarehouses, warehouseFilter]
+  )
+
+  const getWarehouseQty = (item: InventoryItem, warehouseId: string) =>
+    item.stock.find((s) => s.warehouseId === warehouseId)?.quantity ?? 0
+
+  const uniqueCategories = Array.from(
+    new Set(allItems.map((i) => i.category).filter((c): c is string => Boolean(c?.trim())))
+  ).sort((a, b) => a.localeCompare(b))
+
+  const uniqueSubCategories = Array.from(
+    new Set(
+      allItems
+        .filter((i) => !categoryFilter || i.category === categoryFilter)
+        .map((i) => i.subCategory)
+        .filter((c): c is string => Boolean(c?.trim()))
+    )
+  ).sort((a, b) => a.localeCompare(b))
+
+  const handleCategoryChange = (value: string) => {
+    const next = value === 'all' ? '' : value
+    setCategoryFilter(next)
+    if (next && subCategoryFilter) {
+      const stillValid = allItems.some(
+        (i) => i.category === next && i.subCategory === subCategoryFilter
+      )
+      if (!stillValid) setSubCategoryFilter('')
+    }
+  }
 
   const openCreate = () => {
     setEditing(null)
@@ -122,9 +189,112 @@ export function InventoryView({ inv }: Props) {
     toast.success('Inventory PDF downloaded')
   }
 
+  const openAdjust = () => {
+    setAdjustWarehouseId(sortedWarehouses[0]?.id ?? '')
+    setAdjustLines([])
+    setAdjustOpen(true)
+  }
+
+  const getAdjustAvailable = (itemId: string) => {
+    if (!adjustWarehouseId) return undefined
+    const item = allItems.find((i) => i.id === itemId)
+    return item?.stock.find((s) => s.warehouseId === adjustWarehouseId)?.quantity ?? 0
+  }
+
+  const handleAdjust = async () => {
+    if (!adjustWarehouseId) {
+      toast.error('Select a warehouse')
+      return
+    }
+    const changes = adjustLines
+      .map((line) => {
+        const next = Number(line.quantity)
+        const current = getAdjustAvailable(line.itemId) ?? 0
+        return { line, next, current, delta: next - current }
+      })
+      .filter((c) => Number.isFinite(c.next) && c.next >= 0 && c.delta !== 0)
+
+    if (changes.length === 0) {
+      toast.error('Change at least one product quantity')
+      return
+    }
+
+    setAdjustSaving(true)
+    try {
+      await adjustStockBatch({
+        warehouseId: adjustWarehouseId,
+        items: changes.map((c) => ({
+          itemId: c.line.itemId,
+          quantity: c.next,
+        })),
+      })
+      toast.success(`Adjusted ${changes.length} product${changes.length > 1 ? 's' : ''}`)
+      setAdjustOpen(false)
+      setAdjustLines([])
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to adjust stock')
+    } finally {
+      setAdjustSaving(false)
+    }
+  }
+
+  const openTransfer = () => {
+    setFromWarehouseId(sortedWarehouses[0]?.id ?? '')
+    setToWarehouseId(sortedWarehouses[1]?.id ?? '')
+    setTransferLines([])
+    setTransferOpen(true)
+  }
+
+  const getTransferAvailable = (itemId: string) => {
+    if (!fromWarehouseId) return undefined
+    const item = allItems.find((i) => i.id === itemId)
+    return item?.stock.find((s) => s.warehouseId === fromWarehouseId)?.quantity ?? 0
+  }
+
+  const handleTransfer = async () => {
+    if (!fromWarehouseId || !toWarehouseId) {
+      toast.error('Select source and destination warehouses')
+      return
+    }
+    if (fromWarehouseId === toWarehouseId) {
+      toast.error('Choose two different warehouses')
+      return
+    }
+    const validLines = transferLines.filter((l) => Number(l.quantity) > 0)
+    if (validLines.length === 0) {
+      toast.error('Add at least one product with quantity')
+      return
+    }
+    for (const line of validLines) {
+      const available = getTransferAvailable(line.itemId) ?? 0
+      if (Number(line.quantity) > available) {
+        toast.error(`${line.itemSku}: only ${available} available in source warehouse`)
+        return
+      }
+    }
+    setTransferSaving(true)
+    try {
+      await transferStockBatch({
+        fromWarehouseId,
+        toWarehouseId,
+        items: validLines.map((line) => ({
+          itemId: line.itemId,
+          quantity: Number(line.quantity),
+        })),
+      })
+      toast.success(`Transferred ${validLines.length} product${validLines.length > 1 ? 's' : ''}`)
+      setTransferOpen(false)
+      setTransferLines([])
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Transfer failed')
+    } finally {
+      setTransferSaving(false)
+    }
+  }
+
   if (loading) {
     return (
-      <div className="p-6 space-y-4">
+      <div className="p-4 pl-16 lg:pl-6 sm:p-6 space-y-4">
         {Array.from({ length: 5 }).map((_, i) => (
           <Skeleton key={i} className="h-16 w-full" />
         ))}
@@ -133,36 +303,44 @@ export function InventoryView({ inv }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-6 border-b bg-background sticky top-0 z-10">
-        <div className="flex items-center justify-between mb-4">
+    <div className="flex flex-col h-full min-h-0">
+      <PageHeader className="space-y-4">
+        <div className="flex items-start sm:items-center justify-between gap-3 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold">Inventory</h1>
             <p className="text-muted-foreground text-sm">{items.length} items</p>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={handleDownload}>
+          <div className="flex gap-2 flex-wrap justify-end w-full sm:w-auto">
+            <Button variant="outline" className={mobileActionClass} onClick={handleDownload}>
               <Download className="h-4 w-4 mr-1" />
               PDF
             </Button>
-            <Button size="sm" onClick={openCreate}>
+            <Button variant="outline" className={mobileActionClass} onClick={openTransfer}>
+              <ArrowLeftRight className="h-4 w-4 mr-1" />
+              Transfer
+            </Button>
+            <Button variant="outline" className={mobileActionClass} onClick={openAdjust}>
+              <SlidersHorizontal className="h-4 w-4 mr-1" />
+              Adjust
+            </Button>
+            <Button className={mobileActionClass} onClick={openCreate}>
               <Plus className="h-4 w-4 mr-1" />
               Add Item
             </Button>
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
+        <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[180px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search by name or SKU..."
+              placeholder="Search name, SKU, category..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9"
             />
           </div>
-          <Select value={categoryFilter || 'all'} onValueChange={(v) => setCategoryFilter(v === 'all' ? '' : v)}>
+          <Select value={categoryFilter || 'all'} onValueChange={handleCategoryChange}>
             <SelectTrigger className="w-full sm:w-44">
               <Filter className="h-4 w-4 mr-2" />
               <SelectValue placeholder="Category" />
@@ -170,6 +348,20 @@ export function InventoryView({ inv }: Props) {
             <SelectContent>
               <SelectItem value="all">All Categories</SelectItem>
               {uniqueCategories.map((c) => (
+                <SelectItem key={c} value={c}>{c}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={subCategoryFilter || 'all'}
+            onValueChange={(v) => setSubCategoryFilter(v === 'all' ? '' : v)}
+          >
+            <SelectTrigger className="w-full sm:w-52">
+              <SelectValue placeholder="Subcategory" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Subcategories</SelectItem>
+              {uniqueSubCategories.map((c) => (
                 <SelectItem key={c} value={c}>{c}</SelectItem>
               ))}
             </SelectContent>
@@ -186,72 +378,88 @@ export function InventoryView({ inv }: Props) {
             </SelectContent>
           </Select>
         </div>
-      </div>
+      </PageHeader>
 
       {/* Desktop table */}
-      <div className="hidden md:block flex-1 overflow-auto">
+      <div className="hidden md:block flex-1 overflow-auto min-h-0">
+        <TableScroll>
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="sticky left-0 z-10 bg-background">SKU</TableHead>
               <TableHead>
                 <button onClick={() => toggleSort('name')} className="flex items-center gap-1 hover:text-foreground">
-                  Name <ArrowUpDown className="h-3 w-3" />
+                  Flavor <ArrowUpDown className="h-3 w-3" />
                 </button>
               </TableHead>
-              <TableHead>SKU</TableHead>
-              <TableHead>Category</TableHead>
               <TableHead>
                 <button onClick={() => toggleSort('quantity')} className="flex items-center gap-1 hover:text-foreground">
-                  Stock <ArrowUpDown className="h-3 w-3" />
+                  Qty <ArrowUpDown className="h-3 w-3" />
                 </button>
               </TableHead>
-              <TableHead>
-                <button onClick={() => toggleSort('price')} className="flex items-center gap-1 hover:text-foreground">
-                  Price <ArrowUpDown className="h-3 w-3" />
-                </button>
-              </TableHead>
-              <TableHead>Warehouses</TableHead>
+              {visibleWarehouses.map((w) => (
+                <TableHead key={w.id} className="text-center min-w-[100px]">
+                  {w.name}
+                </TableHead>
+              ))}
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {items.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                <TableCell
+                  colSpan={4 + visibleWarehouses.length}
+                  className="text-center py-12 text-muted-foreground"
+                >
                   No items found
                 </TableCell>
               </TableRow>
             )}
             {items.map((item) => {
-              const total = getTotalQuantity(item)
-              const low = total <= item.minStock
+              const total = warehouseFilter
+                ? getWarehouseQty(item, warehouseFilter)
+                : getTotalQuantity(item)
+              const low = total <= item.minStock && total > 0
               return (
                 <TableRow key={item.id}>
-                  <TableCell className="font-medium">{item.name}</TableCell>
-                  <TableCell className="text-muted-foreground font-mono text-sm">{item.sku}</TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{item.category}</Badge>
+                  <TableCell className="sticky left-0 z-10 bg-background font-mono text-sm text-muted-foreground">
+                    {item.sku}
                   </TableCell>
                   <TableCell>
-                    <span className={low ? 'text-destructive font-semibold' : ''}>{total}</span>
-                    {low && <span className="ml-1 text-xs text-destructive">(low)</span>}
+                    <div className="font-medium">{item.name}</div>
+                    {(item.category || item.subCategory) && (
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {[item.category, item.subCategory].filter(Boolean).join(' · ')}
+                      </div>
+                    )}
                   </TableCell>
-                  <TableCell>{formatCurrency(item.price)}</TableCell>
                   <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {item.stock.filter((s) => s.quantity > 0).map((s) => (
-                        <Badge key={s.warehouseId} variant="outline" className="text-xs">
-                          {s.warehouseName}: {s.quantity}
-                        </Badge>
-                      ))}
-                    </div>
+                    <span className={low ? 'text-destructive font-semibold' : 'font-semibold'}>
+                      {total}
+                    </span>
                   </TableCell>
-                  <TableCell className="text-right space-x-1">
-                    <Button variant="ghost" size="sm" onClick={() => openEdit(item)}>
+                  {visibleWarehouses.map((w) => {
+                    const qty = getWarehouseQty(item, w.id)
+                    return (
+                      <TableCell key={w.id} className="text-center tabular-nums">
+                        <span className={qty > 0 ? 'font-semibold text-foreground' : 'text-muted-foreground/50'}>
+                          {qty}
+                        </span>
+                      </TableCell>
+                    )
+                  })}
+                  <TableCell className="text-right whitespace-nowrap">
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openEdit(item)}>
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => handleDelete(item)}>
-                      Delete
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                      onClick={() => handleDelete(item)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -259,42 +467,48 @@ export function InventoryView({ inv }: Props) {
             })}
           </TableBody>
         </Table>
+        </TableScroll>
       </div>
 
       {/* Mobile cards */}
-      <div className="md:hidden flex-1 overflow-auto p-4 space-y-3">
+      <div className="md:hidden flex-1 overflow-auto min-h-0 p-4 space-y-3">
         {items.length === 0 && (
           <div className="text-center py-12 text-muted-foreground">No items found</div>
         )}
         {items.map((item) => {
-          const total = getTotalQuantity(item)
-          const low = total <= item.minStock
+          const total = warehouseFilter
+            ? getWarehouseQty(item, warehouseFilter)
+            : getTotalQuantity(item)
+          const low = total <= item.minStock && total > 0
           return (
             <Card key={item.id}>
               <CardContent className="p-4">
                 <div className="flex justify-between items-start mb-2">
-                  <div>
+                  <div className="min-w-0 pr-2">
                     <p className="font-semibold">{item.name}</p>
                     <p className="text-xs text-muted-foreground font-mono">{item.sku}</p>
+                    {(item.category || item.subCategory) && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {[item.category, item.subCategory].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
                   </div>
-                  <Badge variant="secondary">{item.category}</Badge>
+                  <span className={cn('shrink-0', low ? 'text-destructive font-bold' : 'font-bold')}>{total}</span>
                 </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className={low ? 'text-destructive font-bold' : 'font-medium'}>
-                    Stock: {total}{low && ' ⚠'}
-                  </span>
-                  <span className="text-muted-foreground">{formatCurrency(item.price)}</span>
-                </div>
-                <div className="flex flex-wrap gap-1 mt-2">
-                  {item.stock.filter((s) => s.quantity > 0).map((s) => (
-                    <Badge key={s.warehouseId} variant="outline" className="text-xs">
-                      {s.warehouseName}: {s.quantity}
-                    </Badge>
-                  ))}
+                <div className="grid grid-cols-2 gap-2 mt-3">
+                  {visibleWarehouses.map((w) => {
+                    const qty = getWarehouseQty(item, w.id)
+                    return (
+                      <div key={w.id} className="rounded-md border px-2 py-1.5 text-sm flex justify-between">
+                        <span className="text-muted-foreground truncate pr-2">{w.name}</span>
+                        <span className={qty > 0 ? 'font-semibold' : 'text-muted-foreground/50'}>{qty}</span>
+                      </div>
+                    )
+                  })}
                 </div>
                 <div className="mt-3 flex justify-end gap-2">
-                  <Button variant="ghost" size="sm" onClick={() => openEdit(item)}>Edit</Button>
-                  <Button variant="ghost" size="sm" className="text-destructive" onClick={() => handleDelete(item)}>
+                  <Button variant="ghost" className="h-11 sm:h-8" onClick={() => openEdit(item)}>Edit</Button>
+                  <Button variant="ghost" className="h-11 sm:h-8 text-destructive" onClick={() => handleDelete(item)}>
                     Delete
                   </Button>
                 </div>
@@ -318,22 +532,27 @@ export function InventoryView({ inv }: Props) {
               <Label>SKU</Label>
               <Input value={form.sku} onChange={(e) => setForm((p) => ({ ...p, sku: e.target.value }))} className="mt-1" />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label>Category</Label>
                 <Input value={form.category} onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))} className="mt-1" list="inv-categories" />
                 <datalist id="inv-categories">
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.name} />
+                  {uniqueCategories.map((c) => (
+                    <option key={c} value={c} />
                   ))}
                 </datalist>
               </div>
               <div>
                 <Label>Subcategory</Label>
-                <Input value={form.subCategory} onChange={(e) => setForm((p) => ({ ...p, subCategory: e.target.value }))} className="mt-1" />
+                <Input value={form.subCategory} onChange={(e) => setForm((p) => ({ ...p, subCategory: e.target.value }))} className="mt-1" list="inv-subcategories" />
+                <datalist id="inv-subcategories">
+                  {uniqueSubCategories.map((c) => (
+                    <option key={c} value={c} />
+                  ))}
+                </datalist>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label>Price</Label>
                 <Input type="number" min="0" step="0.01" value={form.price} onChange={(e) => setForm((p) => ({ ...p, price: e.target.value }))} className="mt-1" />
@@ -344,7 +563,7 @@ export function InventoryView({ inv }: Props) {
               </div>
             </div>
             {!editing && (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label>Opening warehouse</Label>
                   <Select value={form.warehouseId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseId: v }))}>
@@ -368,6 +587,109 @@ export function InventoryView({ inv }: Props) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleSave}>{editing ? 'Save' : 'Add Item'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={adjustOpen} onOpenChange={setAdjustOpen}>
+        <DialogContent className="max-w-xl max-h-[90dvh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Adjust Stock</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 overflow-y-auto pr-1 flex-1">
+            <p className="text-sm text-muted-foreground">
+              Set the new on-hand quantity for each product. Changes write a manual adjust in Stock Summary.
+            </p>
+            <div>
+              <Label>Warehouse</Label>
+              <Select value={adjustWarehouseId} onValueChange={(v) => {
+                setAdjustWarehouseId(v)
+                setAdjustLines([])
+              }}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="Warehouse" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sortedWarehouses.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <ProductPicker
+              items={allItems}
+              lines={adjustLines}
+              onChange={setAdjustLines}
+              getAvailableQty={getAdjustAvailable}
+              quantityLabel="New qty"
+              quantityMin={0}
+              seedQuantityFromAvailable
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAdjustOpen(false)}>Cancel</Button>
+            <Button onClick={handleAdjust} disabled={adjustSaving || adjustLines.length === 0}>
+              {adjustSaving ? 'Saving...' : 'Save Adjustments'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
+        <DialogContent className="max-w-xl max-h-[90dvh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Transfer Stock</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 overflow-y-auto pr-1 flex-1">
+            <p className="text-sm text-muted-foreground">
+              Move products from one warehouse to another. Available qty is based on the source warehouse.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <Label>From warehouse</Label>
+                <Select
+                  value={fromWarehouseId}
+                  onValueChange={(v) => {
+                    setFromWarehouseId(v)
+                    setTransferLines([])
+                  }}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="Source" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sortedWarehouses.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>To warehouse</Label>
+                <Select value={toWarehouseId} onValueChange={setToWarehouseId}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="Destination" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sortedWarehouses.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <ProductPicker
+              items={allItems}
+              lines={transferLines}
+              onChange={setTransferLines}
+              getAvailableQty={getTransferAvailable}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTransferOpen(false)}>Cancel</Button>
+            <Button onClick={handleTransfer} disabled={transferSaving || transferLines.length === 0}>
+              {transferSaving ? 'Transferring...' : 'Transfer'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

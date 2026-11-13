@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Package,
   ShoppingCart,
@@ -68,34 +69,53 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
     setMobileOpen(false)
   }
 
-  const SidebarContent = () => (
-    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
-      <div className="flex items-center gap-3 px-6 py-5 border-b border-sidebar-border">
+  useEffect(() => {
+    if (!mobileOpen) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [mobileOpen])
+
+  useEffect(() => {
+    if (!mobileOpen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [mobileOpen])
+
+  const sidebarInner = (
+    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+      <div className="flex items-center gap-3 px-6 py-5 border-b border-sidebar-border pr-14">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm">
           MF
         </div>
         <div>
-          <p className="font-bold text-sm tracking-wide text-sidebar-foreground">MR FOG</p>
+          <p className="font-bold text-sm tracking-wide text-sidebar-foreground">Mr. Fog</p>
           <p className="text-xs text-sidebar-foreground/60">Inventory System</p>
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto py-4 px-3">
+      <nav className="flex-1 overflow-y-auto overscroll-contain py-4 px-3" aria-label="Main">
         {navItems.map((item) => {
           const Icon = item.icon
           const active = activeView === item.id
           return (
             <button
               key={item.id}
+              type="button"
               onClick={() => handleNav(item.id)}
               className={cn(
-                'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors mb-0.5',
+                'flex w-full items-center gap-3 rounded-lg px-3 py-3 min-h-11 text-sm font-medium transition-colors mb-0.5',
                 active
                   ? 'bg-sidebar-primary text-sidebar-primary-foreground'
                   : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
               )}
             >
-              <Icon className="h-4 w-4 shrink-0" />
+              <Icon className="h-5 w-5 shrink-0" />
               {item.label}
             </button>
           )
@@ -109,7 +129,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
         <Button
           variant="ghost"
           size="sm"
-          className="w-full justify-start text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          className="w-full justify-start min-h-11 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           onClick={signOut}
         >
           <LogOut className="h-4 w-4 mr-2" />
@@ -119,44 +139,55 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
     </div>
   )
 
+  const mobileUi =
+    typeof document !== 'undefined'
+      ? createPortal(
+          <>
+            <button
+              type="button"
+              data-mobile-nav-toggle="true"
+              aria-label={mobileOpen ? 'Close navigation menu' : 'Open navigation menu'}
+              aria-expanded={mobileOpen}
+              aria-controls="mobile-nav-drawer"
+              className="lg:hidden fixed top-[max(1rem,env(safe-area-inset-top))] left-[max(1rem,env(safe-area-inset-left))] z-[100] flex h-11 w-11 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-md touch-manipulation"
+              onClick={() => setMobileOpen((open) => !open)}
+            >
+              {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+
+            {mobileOpen && (
+              <div
+                className="lg:hidden fixed inset-0 z-[90] bg-black/60"
+                aria-hidden="true"
+                onClick={() => setMobileOpen(false)}
+              />
+            )}
+
+            <aside
+              id="mobile-nav-drawer"
+              role="dialog"
+              aria-modal={mobileOpen}
+              aria-label="Navigation"
+              aria-hidden={!mobileOpen}
+              className={cn(
+                'lg:hidden fixed inset-y-0 left-0 z-[95] w-[min(18rem,85vw)] bg-sidebar shadow-xl transition-transform duration-300 ease-out',
+                mobileOpen ? 'translate-x-0' : '-translate-x-full pointer-events-none'
+              )}
+            >
+              {sidebarInner}
+            </aside>
+          </>,
+          document.body
+        )
+      : null
+
   return (
     <>
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex w-64 shrink-0 h-screen sticky top-0">
-        <SidebarContent />
+      <aside className="hidden lg:flex w-64 shrink-0 h-dvh sticky top-0 z-30">
+        {sidebarInner}
       </aside>
-
-      {/* Mobile hamburger button */}
-      <button
-        className="lg:hidden fixed top-4 left-4 z-50 flex h-10 w-10 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-md"
-        onClick={() => setMobileOpen(true)}
-      >
-        <Menu className="h-5 w-5" />
-      </button>
-
-      {/* Mobile overlay */}
-      {mobileOpen && (
-        <div
-          className="lg:hidden fixed inset-0 z-40 bg-black/60"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
-
-      {/* Mobile drawer */}
-      <aside
-        className={cn(
-          'lg:hidden fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-300',
-          mobileOpen ? 'translate-x-0' : '-translate-x-full'
-        )}
-      >
-        <button
-          className="absolute top-4 right-4 z-10 text-sidebar-foreground/60 hover:text-sidebar-foreground"
-          onClick={() => setMobileOpen(false)}
-        >
-          <X className="h-5 w-5" />
-        </button>
-        <SidebarContent />
-      </aside>
+      {mobileUi}
     </>
   )
 }

@@ -43,8 +43,9 @@ export interface InventoryTransaction {
   quantity: number;
   bolNumber: string;
   bolDocumentUrl?: string | null;
+  note?: string | null;
   date: Date;
-  type: 'receive' | 'adjust' | 'transfer_in' | 'transfer_out' | 'opening_balance' | 'manual_adjust' | 'order_cancelled';
+  type: 'receive' | 'adjust' | 'transfer_in' | 'transfer_out' | 'opening_balance' | 'manual_adjust' | 'order_cancelled' | 'sale';
 }
 
 export interface OrderItem {
@@ -66,6 +67,17 @@ export interface Order {
   shippingFee: number;
   cancelledAt?: Date | null;
   cancelledReason?: string | null;
+  /** List/summary fields — used when line items are not loaded */
+  cases?: number;
+  productCount?: number;
+  subtotal?: number;
+}
+
+export interface PageResult<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface Wholesaler {

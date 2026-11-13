@@ -24,7 +24,7 @@ export function mapWarehouse(raw: Raw): Warehouse {
     id: String(raw.id),
     name: String(raw.name ?? ''),
     location: String(raw.location ?? ''),
-    color: String(raw.color ?? '#14b8a6'),
+    color: String(raw.color ?? '#c41e2a'),
     sortOrder: Number(raw.sortOrder ?? 0),
   }
 }
@@ -67,6 +67,7 @@ export function mapTransaction(raw: Raw): InventoryTransaction {
     quantity: Number(raw.quantity ?? 0),
     bolNumber: String(raw.bolNumber ?? ''),
     bolDocumentUrl: (raw.bolDocumentUrl as string | null) ?? null,
+    note: (raw.note as string | null) ?? null,
     date: new Date(String(raw.date ?? raw.createdAt ?? Date.now())),
     type: raw.type as InventoryTransaction['type'],
   }
@@ -74,23 +75,41 @@ export function mapTransaction(raw: Raw): InventoryTransaction {
 
 export function mapOrder(raw: Raw): Order {
   const items = (raw.items ?? []) as Raw[]
+  const rawDate = raw.date || raw.createdAt || Date.now()
+  const date = new Date(String(rawDate))
+  const mappedItems = items.map((item) => ({
+    itemId: String(item.itemId),
+    itemName: String(item.itemName ?? ''),
+    itemSku: String(item.itemSku ?? ''),
+    warehouseId: String(item.warehouseId),
+    warehouseName: String(item.warehouseName ?? ''),
+    quantity: Number(item.quantity ?? 0),
+    unitPrice: Number(item.unitPrice ?? 0),
+  }))
+  const casesFromItems = mappedItems.reduce((s, i) => s + i.quantity, 0)
+  const subtotalFromItems = mappedItems.reduce((s, i) => s + i.quantity * i.unitPrice, 0)
   return {
     id: String(raw.id),
     shopName: String(raw.shopName ?? ''),
-    date: new Date(String(raw.date ?? raw.createdAt ?? Date.now())),
+    date: Number.isNaN(date.getTime()) ? new Date() : date,
     status: (raw.status as Order['status']) ?? 'pending',
     shippingFee: Number(raw.shippingFee ?? 0),
     cancelledAt: raw.cancelledAt ? new Date(String(raw.cancelledAt)) : null,
     cancelledReason: (raw.cancelledReason as string | null) ?? null,
-    items: items.map((item) => ({
-      itemId: String(item.itemId),
-      itemName: String(item.itemName ?? ''),
-      itemSku: String(item.itemSku ?? ''),
-      warehouseId: String(item.warehouseId),
-      warehouseName: String(item.warehouseName ?? ''),
-      quantity: Number(item.quantity ?? 0),
-      unitPrice: Number(item.unitPrice ?? 0),
-    })),
+    items: mappedItems,
+    cases: raw.cases != null ? Number(raw.cases) : mappedItems.length ? casesFromItems : undefined,
+    productCount:
+      raw.productCount != null
+        ? Number(raw.productCount)
+        : mappedItems.length
+          ? mappedItems.length
+          : undefined,
+    subtotal:
+      raw.subtotal != null
+        ? Number(raw.subtotal)
+        : mappedItems.length
+          ? subtotalFromItems
+          : undefined,
   }
 }
 
