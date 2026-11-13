@@ -11,7 +11,7 @@ Inventory management system for tracking products across multiple warehouses, ma
 | UI | shadcn/ui + Tailwind CSS |
 | Database | PostgreSQL 16 |
 | Deployment | Docker + Docker Compose on AWS EC2 |
-| CI/CD | GitHub Actions (auto-deploy on push to main) |
+| CI/CD | Manual deploy for now (`./scripts/deploy.sh`); GitHub Actions later |
 
 ## Features
 
@@ -23,6 +23,54 @@ Inventory management system for tracking products across multiple warehouses, ma
 - **Drift Monitor** — Detect stock discrepancies between live data and audit log
 - **PDF/Excel Export** — Invoices, pick sheets, inventory lists, sales reports
 - **Auth** — JWT-based login with admin/user roles
+
+## Home / new computer setup
+
+Use this when you move to a new machine (for example your home PC) and want to develop features, then deploy manually.
+
+### 1. One-time tools
+
+- Git
+- Python 3.12+
+- Node.js 22+
+- Docker Desktop (recommended)
+- Your GitHub login (same account as the office machine)
+- Your EC2 `.pem` key copied from the office machine (for deploys)
+
+### 2. Clone and install
+
+```bash
+git clone https://github.com/Nawaaf123/MRFOGINVENTORY.git
+cd MRFOGINVENTORY
+./scripts/setup-home.sh
+```
+
+### 3. Develop features
+
+```bash
+# Terminal 1 — API
+cd backend && source .venv/bin/activate
+uvicorn main:app --reload --port 8000
+
+# Terminal 2 — UI
+cd frontend && npm run dev
+```
+
+Open http://localhost:5179  
+Login: `admin@stockkeeper.com` / `admin123`
+
+### 4. Deploy manually to production
+
+Push your branch/commits to GitHub, then:
+
+```bash
+export EC2_HOST=YOUR_EC2_PUBLIC_IP
+export EC2_KEY=~/.ssh/your-key.pem
+./scripts/deploy.sh
+```
+
+That SSHs into EC2, pulls `main`, and rebuilds Docker containers.  
+If SSH fails from home, allow your home IP on the EC2 security group (port 22).
 
 ## Local Development
 
@@ -166,7 +214,9 @@ sudo certbot --nginx -d your-domain.com
 │   ├── Dockerfile
 │   └── nginx.conf
 ├── docker-compose.yml
-├── .github/workflows/
-│   └── deploy.yml          # CI/CD pipeline
+├── scripts/
+│   ├── setup-home.sh       # One-time setup on a new computer
+│   └── deploy.sh           # Manual EC2 deploy over SSH
+├── .env.example
 └── README.md
 ```
