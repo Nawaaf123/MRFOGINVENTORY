@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { PageHeader, TableScroll, mobileActionClass } from '@/components/layout/PageShell'
 import { toast } from 'sonner'
 
 type Inv = ReturnType<typeof useInventory>
@@ -228,11 +229,11 @@ export function StockSummaryView({ inv }: Props) {
     })
   }
 
-  if (invLoading) return <div className="p-6 text-muted-foreground">Loading...</div>
+  if (invLoading) return <div className="py-4 pr-4 pl-16 sm:py-6 sm:pr-6 lg:pl-6 text-muted-foreground">Loading...</div>
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-6 border-b bg-background sticky top-0 z-10 space-y-4">
+    <div className="flex flex-col h-full min-h-0">
+      <PageHeader className="space-y-4">
         <div>
           <h1 className="text-2xl font-bold">Stock Summary</h1>
           <p className="text-muted-foreground text-sm mt-1">
@@ -285,14 +286,14 @@ export function StockSummaryView({ inv }: Props) {
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" onClick={() => void loadSummary()} disabled={loading}>
+          <Button variant="outline" className={mobileActionClass} onClick={() => void loadSummary()} disabled={loading}>
             Refresh
           </Button>
         </div>
-      </div>
+      </PageHeader>
 
-      <div className="flex-1 overflow-auto p-6 space-y-6">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="flex-1 overflow-auto min-h-0 p-4 sm:p-6 space-y-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Received</CardTitle>
@@ -334,171 +335,284 @@ export function StockSummaryView({ inv }: Props) {
         {loading ? (
           <div className="text-muted-foreground py-8 text-center">Building ledger...</div>
         ) : (
-          <Card>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-8" />
-                    <TableHead>SKU</TableHead>
-                    <TableHead>Product</TableHead>
-                    <TableHead className="text-right">Received</TableHead>
-                    <TableHead className="text-right">Sold</TableHead>
-                    <TableHead className="text-right">Returned</TableHead>
-                    <TableHead className="text-right">Remaining</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredItems.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
-                        No products found
-                      </TableCell>
-                    </TableRow>
-                  )}
-                  {filteredItems.map((item) => {
-                    const open = expanded === item.itemId
-                    return (
-                      <Fragment key={item.itemId}>
-                        <TableRow
-                          className="cursor-pointer"
-                          onClick={() => toggle(item.itemId)}
-                        >
-                          <TableCell>
-                            {open ? (
-                              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                            ) : (
-                              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                            )}
-                          </TableCell>
-                          <TableCell className="font-mono text-sm">{item.itemSku}</TableCell>
-                          <TableCell>
-                            <p className="font-medium">{item.itemName}</p>
-                            {(item.category || item.subCategory) && (
-                              <p className="text-xs text-muted-foreground">
-                                {[item.category, item.subCategory].filter(Boolean).join(' · ')}
-                              </p>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right text-green-700 font-medium">{item.received}</TableCell>
-                          <TableCell className="text-right text-blue-700 font-medium">{item.sold}</TableCell>
-                          <TableCell className="text-right text-amber-700 font-medium">{item.returned ?? 0}</TableCell>
-                          <TableCell className="text-right font-semibold">{item.remaining}</TableCell>
-                        </TableRow>
-                        {open && (
-                          <TableRow>
-                            <TableCell colSpan={7} className="bg-muted/30 p-4">
-                              <div className="space-y-4">
-                                {item.warehouseBreakdown.length > 0 && (
-                                  <div>
-                                    <p className="text-sm font-medium mb-2">By warehouse</p>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                                      {item.warehouseBreakdown.map((w) => (
-                                        <div
-                                          key={w.warehouseId}
-                                          className={`rounded-md border bg-background p-3 text-sm ${
-                                            singleWarehouse && w.warehouseId === warehouseId
-                                              ? 'ring-2 ring-primary/40'
-                                              : ''
-                                          }`}
-                                        >
-                                          <p className="font-medium">{w.warehouseName}</p>
-                                          <p className="text-muted-foreground text-xs mt-1">
-                                            Rec {w.received} · Sold {w.sold} · Ret {w.returned ?? 0} · Rem {w.remaining}
-                                          </p>
-                                        </div>
-                                      ))}
-                                    </div>
+          <>
+            {/* Mobile cards */}
+            <div className="md:hidden space-y-3">
+              {filteredItems.length === 0 && (
+                <div className="text-center py-12 text-muted-foreground">No products found</div>
+              )}
+              {filteredItems.map((item) => {
+                const open = expanded === item.itemId
+                return (
+                  <Card key={item.itemId}>
+                    <button
+                      type="button"
+                      className="w-full text-left p-4 flex items-start gap-3 min-h-11"
+                      onClick={() => toggle(item.itemId)}
+                    >
+                      {open ? (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground mt-1 shrink-0" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground mt-1 shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold">{item.itemName}</p>
+                        <p className="text-xs font-mono text-muted-foreground">{item.itemSku}</p>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                          <span className="text-green-700">Rec {item.received}</span>
+                          <span className="text-blue-700">Sold {item.sold}</span>
+                          <span className="text-amber-700">Ret {item.returned ?? 0}</span>
+                          <span className="font-semibold">Rem {item.remaining}</span>
+                        </div>
+                      </div>
+                    </button>
+                    {open && (
+                      <CardContent className="pt-0 space-y-4 border-t">
+                        {item.warehouseBreakdown.length > 0 && (
+                          <div className="pt-3">
+                            <p className="text-sm font-medium mb-2">By warehouse</p>
+                            <div className="grid grid-cols-1 gap-2">
+                              {item.warehouseBreakdown.map((w) => (
+                                <div
+                                  key={w.warehouseId}
+                                  className={`rounded-md border bg-background p-3 text-sm ${
+                                    singleWarehouse && w.warehouseId === warehouseId
+                                      ? 'ring-2 ring-primary/40'
+                                      : ''
+                                  }`}
+                                >
+                                  <p className="font-medium">{w.warehouseName}</p>
+                                  <p className="text-muted-foreground text-xs mt-1">
+                                    Rec {w.received} · Sold {w.sold} · Ret {w.returned ?? 0} · Rem {w.remaining}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        <div>
+                          <p className="text-sm font-medium mb-1">Movements</p>
+                          {ledgerLoading && expanded === item.itemId && !(item.ledger?.length) ? (
+                            <p className="text-sm text-muted-foreground">Loading movements...</p>
+                          ) : (item.ledger?.length ?? 0) === 0 ? (
+                            <p className="text-sm text-muted-foreground">No movements recorded</p>
+                          ) : (
+                            <div className="space-y-2">
+                              {item.ledger.map((row) => (
+                                <div key={row.id} className="rounded-md border p-3 text-sm">
+                                  <div className="flex justify-between gap-2">
+                                    <Badge variant="secondary" className={typeColors[row.type] ?? ''}>
+                                      {row.type === 'sale'
+                                        ? saleLabel(row.quantity)
+                                        : (typeLabels[row.type] ?? row.type)}
+                                    </Badge>
+                                    <span
+                                      className={`font-medium ${
+                                        row.signedQuantity > 0
+                                          ? 'text-green-700'
+                                          : row.signedQuantity < 0
+                                            ? 'text-destructive'
+                                            : ''
+                                      }`}
+                                    >
+                                      {row.signedQuantity > 0 ? '+' : ''}
+                                      {row.signedQuantity}
+                                    </span>
                                   </div>
-                                )}
-                                <div>
-                                  <p className="text-sm font-medium mb-1">
-                                    Movements (newest first)
-                                    {singleWarehouse && item.impliedOpening !== 0 && (
-                                      <span className="text-muted-foreground font-normal">
-                                        {' '}· implied opening {item.impliedOpening}
-                                      </span>
-                                    )}
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    {row.date ? format(new Date(row.date), 'MMM d, yyyy') : '—'}
+                                    {' · '}
+                                    {row.warehouseName || '—'}
+                                    {singleWarehouse && row.remainingAfter != null
+                                      ? ` · rem ${row.remainingAfter}`
+                                      : ''}
                                   </p>
-                                  <p className="text-xs text-muted-foreground mb-2">
-                                    {singleWarehouse
-                                      ? 'Running Remaining is this warehouse’s stock after each line.'
-                                      : 'Company-wide timeline. Transfers show as Out in one warehouse and In in another. Select a warehouse for a running Remaining.'}
-                                  </p>
-                                  {ledgerLoading && expanded === item.itemId && !(item.ledger?.length) ? (
-                                    <p className="text-sm text-muted-foreground">Loading movements...</p>
-                                  ) : (item.ledger?.length ?? 0) === 0 ? (
-                                    <p className="text-sm text-muted-foreground">No movements recorded</p>
-                                  ) : (
-                                    <div className="rounded-md border overflow-hidden">
-                                      <Table>
-                                        <TableHeader>
-                                          <TableRow>
-                                            <TableHead>Date</TableHead>
-                                            <TableHead>Type</TableHead>
-                                            <TableHead>Source</TableHead>
-                                            <TableHead>Warehouse</TableHead>
-                                            <TableHead className="text-right">Qty</TableHead>
-                                            {singleWarehouse && (
-                                              <TableHead className="text-right">Remaining</TableHead>
-                                            )}
-                                          </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                          {item.ledger.map((row) => (
-                                            <TableRow key={row.id}>
-                                              <TableCell className="text-sm whitespace-nowrap">
-                                                {row.date ? format(new Date(row.date), 'MMM d, yyyy') : '—'}
-                                              </TableCell>
-                                              <TableCell>
-                                                <Badge
-                                                  variant="secondary"
-                                                  className={typeColors[row.type] ?? ''}
-                                                >
-                                                  {row.type === 'sale'
-                                                    ? saleLabel(row.quantity)
-                                                    : (typeLabels[row.type] ?? row.type)}
-                                                </Badge>
-                                              </TableCell>
-                                              <TableCell className="text-sm max-w-[180px] truncate">
-                                                {row.source || row.bolNumber || '—'}
-                                              </TableCell>
-                                              <TableCell className="text-sm">{row.warehouseName || '—'}</TableCell>
-                                              <TableCell
-                                                className={`text-right font-medium ${
-                                                  row.signedQuantity > 0
-                                                    ? 'text-green-700'
-                                                    : row.signedQuantity < 0
-                                                      ? 'text-destructive'
-                                                      : ''
-                                                }`}
-                                              >
-                                                {row.signedQuantity > 0 ? '+' : ''}
-                                                {row.signedQuantity}
-                                              </TableCell>
-                                              {singleWarehouse && (
-                                                <TableCell className="text-right font-semibold">
-                                                  {row.remainingAfter ?? '—'}
-                                                </TableCell>
-                                              )}
-                                            </TableRow>
-                                          ))}
-                                        </TableBody>
-                                      </Table>
-                                    </div>
+                                  {(row.source || row.bolNumber) && (
+                                    <p className="text-xs truncate mt-0.5">{row.source || row.bolNumber}</p>
                                   )}
                                 </div>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </Fragment>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </CardContent>
+                    )}
+                  </Card>
+                )
+              })}
+            </div>
+
+            {/* Desktop table */}
+            <Card className="hidden md:block">
+              <CardContent className="p-0">
+                <TableScroll>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-8" />
+                        <TableHead>SKU</TableHead>
+                        <TableHead>Product</TableHead>
+                        <TableHead className="text-right">Received</TableHead>
+                        <TableHead className="text-right">Sold</TableHead>
+                        <TableHead className="text-right">Returned</TableHead>
+                        <TableHead className="text-right">Remaining</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredItems.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                            No products found
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {filteredItems.map((item) => {
+                        const open = expanded === item.itemId
+                        return (
+                          <Fragment key={item.itemId}>
+                            <TableRow
+                              className="cursor-pointer"
+                              onClick={() => toggle(item.itemId)}
+                            >
+                              <TableCell>
+                                {open ? (
+                                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                ) : (
+                                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                )}
+                              </TableCell>
+                              <TableCell className="font-mono text-sm">{item.itemSku}</TableCell>
+                              <TableCell>
+                                <p className="font-medium">{item.itemName}</p>
+                                {(item.category || item.subCategory) && (
+                                  <p className="text-xs text-muted-foreground">
+                                    {[item.category, item.subCategory].filter(Boolean).join(' · ')}
+                                  </p>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right text-green-700 font-medium">{item.received}</TableCell>
+                              <TableCell className="text-right text-blue-700 font-medium">{item.sold}</TableCell>
+                              <TableCell className="text-right text-amber-700 font-medium">{item.returned ?? 0}</TableCell>
+                              <TableCell className="text-right font-semibold">{item.remaining}</TableCell>
+                            </TableRow>
+                            {open && (
+                              <TableRow>
+                                <TableCell colSpan={7} className="bg-muted/30 p-4">
+                                  <div className="space-y-4">
+                                    {item.warehouseBreakdown.length > 0 && (
+                                      <div>
+                                        <p className="text-sm font-medium mb-2">By warehouse</p>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                                          {item.warehouseBreakdown.map((w) => (
+                                            <div
+                                              key={w.warehouseId}
+                                              className={`rounded-md border bg-background p-3 text-sm ${
+                                                singleWarehouse && w.warehouseId === warehouseId
+                                                  ? 'ring-2 ring-primary/40'
+                                                  : ''
+                                              }`}
+                                            >
+                                              <p className="font-medium">{w.warehouseName}</p>
+                                              <p className="text-muted-foreground text-xs mt-1">
+                                                Rec {w.received} · Sold {w.sold} · Ret {w.returned ?? 0} · Rem {w.remaining}
+                                              </p>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                    <div>
+                                      <p className="text-sm font-medium mb-1">
+                                        Movements (newest first)
+                                        {singleWarehouse && item.impliedOpening !== 0 && (
+                                          <span className="text-muted-foreground font-normal">
+                                            {' '}· implied opening {item.impliedOpening}
+                                          </span>
+                                        )}
+                                      </p>
+                                      <p className="text-xs text-muted-foreground mb-2">
+                                        {singleWarehouse
+                                          ? 'Running Remaining is this warehouse’s stock after each line.'
+                                          : 'Company-wide timeline. Transfers show as Out in one warehouse and In in another. Select a warehouse for a running Remaining.'}
+                                      </p>
+                                      {ledgerLoading && expanded === item.itemId && !(item.ledger?.length) ? (
+                                        <p className="text-sm text-muted-foreground">Loading movements...</p>
+                                      ) : (item.ledger?.length ?? 0) === 0 ? (
+                                        <p className="text-sm text-muted-foreground">No movements recorded</p>
+                                      ) : (
+                                        <div className="rounded-md border overflow-hidden">
+                                          <TableScroll>
+                                            <Table>
+                                              <TableHeader>
+                                                <TableRow>
+                                                  <TableHead>Date</TableHead>
+                                                  <TableHead>Type</TableHead>
+                                                  <TableHead>Source</TableHead>
+                                                  <TableHead>Warehouse</TableHead>
+                                                  <TableHead className="text-right">Qty</TableHead>
+                                                  {singleWarehouse && (
+                                                    <TableHead className="text-right">Remaining</TableHead>
+                                                  )}
+                                                </TableRow>
+                                              </TableHeader>
+                                              <TableBody>
+                                                {item.ledger.map((row) => (
+                                                  <TableRow key={row.id}>
+                                                    <TableCell className="text-sm whitespace-nowrap">
+                                                      {row.date ? format(new Date(row.date), 'MMM d, yyyy') : '—'}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                      <Badge
+                                                        variant="secondary"
+                                                        className={typeColors[row.type] ?? ''}
+                                                      >
+                                                        {row.type === 'sale'
+                                                          ? saleLabel(row.quantity)
+                                                          : (typeLabels[row.type] ?? row.type)}
+                                                      </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-sm max-w-[180px] truncate">
+                                                      {row.source || row.bolNumber || '—'}
+                                                    </TableCell>
+                                                    <TableCell className="text-sm">{row.warehouseName || '—'}</TableCell>
+                                                    <TableCell
+                                                      className={`text-right font-medium ${
+                                                        row.signedQuantity > 0
+                                                          ? 'text-green-700'
+                                                          : row.signedQuantity < 0
+                                                            ? 'text-destructive'
+                                                            : ''
+                                                      }`}
+                                                    >
+                                                      {row.signedQuantity > 0 ? '+' : ''}
+                                                      {row.signedQuantity}
+                                                    </TableCell>
+                                                    {singleWarehouse && (
+                                                      <TableCell className="text-right font-semibold">
+                                                        {row.remainingAfter ?? '—'}
+                                                      </TableCell>
+                                                    )}
+                                                  </TableRow>
+                                                ))}
+                                              </TableBody>
+                                            </Table>
+                                          </TableScroll>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </Fragment>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                </TableScroll>
+              </CardContent>
+            </Card>
+          </>
         )}
       </div>
     </div>

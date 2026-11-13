@@ -495,14 +495,14 @@ export function OrdersView({ inv }: Props) {
   }
 
   if (catalogLoading && listLoading) {
-    return <div className="p-6 text-muted-foreground">Loading orders...</div>
+    return <div className="py-4 pr-4 pl-16 sm:py-6 sm:pr-6 lg:pl-6 text-muted-foreground">Loading orders...</div>
   }
 
   const sortedDates = Object.keys(grouped).sort().reverse()
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-4 pl-16 lg:pl-6 sm:p-6 border-b bg-background sticky top-0 z-10 space-y-4">
+    <div className="flex flex-col h-full min-h-0">
+      <div className="py-4 pr-4 pl-16 sm:py-6 sm:pr-6 lg:pl-6 border-b bg-background sticky top-0 z-10 space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <h1 className="text-2xl font-bold">Orders</h1>
           <Button className="h-11 px-4 text-base sm:h-9 sm:text-sm" onClick={openCreate}>
@@ -514,7 +514,7 @@ export function OrdersView({ inv }: Props) {
 
       <Tabs
         defaultValue="list"
-        className="flex-1 overflow-hidden flex flex-col"
+        className="flex-1 overflow-hidden flex flex-col min-h-0"
         onValueChange={(v) => {
           if (v === 'by-product') {
             void loadOrders({
@@ -528,11 +528,11 @@ export function OrdersView({ inv }: Props) {
           }
         }}
       >
-        <div className="px-6 pt-4 space-y-3 border-b bg-background">
-          <TabsList className="w-fit">
-            <TabsTrigger value="list">Orders</TabsTrigger>
-            <TabsTrigger value="by-shop">By Shop</TabsTrigger>
-            <TabsTrigger value="by-product">By Product</TabsTrigger>
+        <div className="px-4 sm:px-6 pt-4 space-y-3 border-b bg-background">
+          <TabsList className="w-full sm:w-fit h-auto flex-wrap justify-start">
+            <TabsTrigger value="list" className="min-h-10">Orders</TabsTrigger>
+            <TabsTrigger value="by-shop" className="min-h-10">By Shop</TabsTrigger>
+            <TabsTrigger value="by-product" className="min-h-10">By Product</TabsTrigger>
           </TabsList>
 
           <div className="flex flex-col sm:flex-row gap-3 flex-wrap pb-4">
@@ -567,7 +567,7 @@ export function OrdersView({ inv }: Props) {
           </div>
         </div>
 
-        <TabsContent value="list" className="flex-1 overflow-auto p-6 mt-0">
+        <TabsContent value="list" className="flex-1 overflow-auto p-4 sm:p-6 mt-0 min-h-0">
           <div className="space-y-6">
             {sortedDates.map((date) => (
               <div key={date}>
@@ -614,7 +614,7 @@ export function OrdersView({ inv }: Props) {
           </div>
         </TabsContent>
 
-        <TabsContent value="by-shop" className="flex-1 overflow-auto p-6 mt-0">
+        <TabsContent value="by-shop" className="flex-1 overflow-auto p-4 sm:p-6 mt-0 min-h-0">
           <div className="space-y-4">
             {byShop.map(([shop, shopOrders]) => {
               const total = shopOrders.reduce((s, o) => s + orderTotal(o), 0)
@@ -632,39 +632,60 @@ export function OrdersView({ inv }: Props) {
                       </span>
                     </CardTitle>
                   </CardHeader>
-                  <CardContent>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Cases</TableHead>
-                          <TableHead>Products</TableHead>
-                          <TableHead>Total</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {shopOrders.map((o) => (
-                          <TableRow key={o.id}>
-                            <TableCell>{format(new Date(o.date), 'MMM d, yyyy')}</TableCell>
-                            <TableCell>{casesCount(o)}</TableCell>
-                            <TableCell>{productsCount(o)}</TableCell>
-                            <TableCell>{formatCurrency(orderTotal(o))}</TableCell>
-                            <TableCell>
-                              <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium capitalize', statusColors[o.status])}>
-                                {o.status}
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <Button variant="ghost" size="sm" onClick={() => handleInvoice(o)}>
-                                Invoice
-                              </Button>
-                            </TableCell>
+                  <CardContent className="p-0 sm:p-6 sm:pt-0">
+                    <div className="md:hidden space-y-2 p-4 pt-0">
+                      {shopOrders.map((o) => (
+                        <div key={o.id} className="rounded-md border p-3 space-y-2">
+                          <div className="flex justify-between gap-2">
+                            <span className="text-sm font-medium">{format(new Date(o.date), 'MMM d, yyyy')}</span>
+                            <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium capitalize', statusColors[o.status])}>
+                              {o.status}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-sm text-muted-foreground">
+                            <span>{casesCount(o)} cases · {productsCount(o)} products</span>
+                            <span className="font-semibold text-foreground">{formatCurrency(orderTotal(o))}</span>
+                          </div>
+                          <Button variant="outline" className="w-full h-11" onClick={() => handleInvoice(o)}>
+                            Invoice
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="hidden md:block overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Cases</TableHead>
+                            <TableHead>Products</TableHead>
+                            <TableHead>Total</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead className="text-right">Actions</TableHead>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                        </TableHeader>
+                        <TableBody>
+                          {shopOrders.map((o) => (
+                            <TableRow key={o.id}>
+                              <TableCell>{format(new Date(o.date), 'MMM d, yyyy')}</TableCell>
+                              <TableCell>{casesCount(o)}</TableCell>
+                              <TableCell>{productsCount(o)}</TableCell>
+                              <TableCell>{formatCurrency(orderTotal(o))}</TableCell>
+                              <TableCell>
+                                <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium capitalize', statusColors[o.status])}>
+                                  {o.status}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Button variant="ghost" size="sm" onClick={() => handleInvoice(o)}>
+                                  Invoice
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
                   </CardContent>
                 </Card>
               )
@@ -675,38 +696,55 @@ export function OrdersView({ inv }: Props) {
           </div>
         </TabsContent>
 
-        <TabsContent value="by-product" className="flex-1 overflow-auto p-6 mt-0">
+        <TabsContent value="by-product" className="flex-1 overflow-auto p-4 sm:p-6 mt-0 min-h-0">
           <Card>
             <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>SKU</TableHead>
-                    <TableHead>Product</TableHead>
-                    <TableHead className="text-right">Cases</TableHead>
-                    <TableHead className="text-right">Orders</TableHead>
-                    <TableHead className="text-right">Revenue</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {byProduct.length === 0 && (
+              <div className="md:hidden space-y-2 p-4">
+                {byProduct.length === 0 && (
+                  <div className="text-center py-12 text-muted-foreground">No product sales in this filter</div>
+                )}
+                {byProduct.map((p) => (
+                  <div key={p.sku} className="rounded-md border p-3">
+                    <p className="font-medium">{p.name}</p>
+                    <p className="text-xs font-mono text-muted-foreground">{p.sku}</p>
+                    <div className="mt-2 flex justify-between text-sm">
+                      <span className="text-muted-foreground">{p.cases} cases · {p.orders} orders</span>
+                      <span className="font-semibold">{formatCurrency(p.revenue)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="hidden md:block overflow-x-auto">
+                <Table>
+                  <TableHeader>
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
-                        No product sales in this filter
-                      </TableCell>
+                      <TableHead>SKU</TableHead>
+                      <TableHead>Product</TableHead>
+                      <TableHead className="text-right">Cases</TableHead>
+                      <TableHead className="text-right">Orders</TableHead>
+                      <TableHead className="text-right">Revenue</TableHead>
                     </TableRow>
-                  )}
-                  {byProduct.map((p) => (
-                    <TableRow key={p.sku}>
-                      <TableCell className="font-mono text-sm text-muted-foreground">{p.sku}</TableCell>
-                      <TableCell className="font-medium">{p.name}</TableCell>
-                      <TableCell className="text-right tabular-nums">{p.cases}</TableCell>
-                      <TableCell className="text-right tabular-nums">{p.orders}</TableCell>
-                      <TableCell className="text-right tabular-nums">{formatCurrency(p.revenue)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {byProduct.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
+                          No product sales in this filter
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {byProduct.map((p) => (
+                      <TableRow key={p.sku}>
+                        <TableCell className="font-mono text-sm text-muted-foreground">{p.sku}</TableCell>
+                        <TableCell className="font-medium">{p.name}</TableCell>
+                        <TableCell className="text-right tabular-nums">{p.cases}</TableCell>
+                        <TableCell className="text-right tabular-nums">{p.orders}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatCurrency(p.revenue)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

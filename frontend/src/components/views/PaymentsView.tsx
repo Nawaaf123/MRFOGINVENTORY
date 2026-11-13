@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { PageHeader, mobileActionClass } from '@/components/layout/PageShell'
 import { cn, formatCurrency } from '@/lib/utils'
 import { downloadInvoice } from '@/lib/invoice'
 import { toast } from 'sonner'
@@ -215,11 +216,11 @@ export function PaymentsView({ inv }: Props) {
     }
   }
 
-  if (pageLoading) return <div className="p-6 text-muted-foreground">Loading...</div>
+  if (pageLoading) return <div className="py-4 pr-4 pl-16 sm:py-6 sm:pr-6 lg:pl-6 text-muted-foreground">Loading...</div>
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-6 border-b bg-background sticky top-0 z-10 space-y-3">
+    <div className="flex flex-col h-full min-h-0">
+      <PageHeader className="space-y-3">
         <div>
           <h1 className="text-2xl font-bold">Payments</h1>
           <p className="text-muted-foreground text-sm mt-1">
@@ -258,9 +259,9 @@ export function PaymentsView({ inv }: Props) {
             </SelectContent>
           </Select>
         </div>
-      </div>
+      </PageHeader>
 
-      <div className="flex-1 overflow-auto p-4 sm:p-6 space-y-3 bg-muted/30">
+      <div className="flex-1 overflow-auto min-h-0 p-4 sm:p-6 space-y-3 bg-muted/30">
         {groups.map((group) => {
           const isOpen = expanded === group.shop
           return (
@@ -277,7 +278,7 @@ export function PaymentsView({ inv }: Props) {
                   }
                 }}
               >
-                <div className="flex items-center gap-3 flex-1 min-w-[200px] text-left">
+                <div className="flex items-center gap-3 flex-1 min-w-0 text-left">
                   {isOpen ? (
                     <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
                   ) : (
@@ -306,23 +307,22 @@ export function PaymentsView({ inv }: Props) {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-6 ml-auto">
-                  <div className="text-right">
+                <div className="flex items-center gap-4 sm:gap-6 w-full sm:w-auto sm:ml-auto">
+                  <div className="text-left sm:text-right">
                     <p className="text-xs text-muted-foreground">Total</p>
-                    <p className="text-lg font-bold tabular-nums">{formatCurrency(group.total)}</p>
+                    <p className="text-base sm:text-lg font-bold tabular-nums">{formatCurrency(group.total)}</p>
                   </div>
-                  <div className="text-right min-w-[88px]">
+                  <div className="text-left sm:text-right min-w-[72px]">
                     <p className="text-xs text-muted-foreground">Pending</p>
                     <p className={cn(
-                      'text-lg font-bold tabular-nums',
+                      'text-base sm:text-lg font-bold tabular-nums',
                       group.pending > 0 ? 'text-orange-600' : 'text-green-600'
                     )}>
                       {formatCurrency(group.pending)}
                     </p>
                   </div>
                   <Button
-                    size="sm"
-                    className="bg-rose-600 hover:bg-rose-700 text-white"
+                    className={cn(mobileActionClass, 'ml-auto sm:ml-0 bg-rose-600 hover:bg-rose-700 text-white')}
                     disabled={group.pending <= 0}
                     onClick={(e) => {
                       e.stopPropagation()
@@ -337,7 +337,66 @@ export function PaymentsView({ inv }: Props) {
 
               {isOpen && (
                 <CardContent className="pt-0 pb-4 px-4">
-                  <div className="rounded-md border overflow-auto">
+                  {/* Mobile invoice cards */}
+                  <div className="md:hidden space-y-2">
+                    {group.invoices.map((invRow) => (
+                      <div key={invRow.order.id} className="rounded-md border p-3 space-y-2">
+                        <div className="flex justify-between gap-2 items-start">
+                          <div>
+                            <p className="font-mono text-sm font-medium">{invRow.invoiceNo}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {format(new Date(invRow.order.date), 'd MMM yyyy')}
+                            </p>
+                          </div>
+                          <Badge
+                            className={cn(
+                              'capitalize font-medium',
+                              invRow.status === 'paid' && 'bg-green-100 text-green-700 hover:bg-green-100',
+                              invRow.status === 'partial' && 'bg-amber-100 text-amber-800 hover:bg-amber-100',
+                              invRow.status === 'unpaid' && 'bg-rose-600 text-white hover:bg-rose-600'
+                            )}
+                          >
+                            {invRow.status === 'partial' ? 'Partial' : invRow.status === 'paid' ? 'Paid' : 'Unpaid'}
+                          </Badge>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-sm">
+                          <div>
+                            <p className="text-xs text-muted-foreground">Amount</p>
+                            <p className="font-medium tabular-nums">{formatCurrency(invRow.amount)}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Paid</p>
+                            <p className="font-medium tabular-nums text-green-600">{formatCurrency(invRow.paid)}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Pending</p>
+                            <p className="font-medium tabular-nums text-orange-600">{formatCurrency(invRow.pending)}</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            className="flex-1 h-11"
+                            disabled={invRow.pending <= 0}
+                            onClick={() => openPayForInvoice(group.shop, invRow)}
+                          >
+                            <DollarSign className="h-4 w-4 mr-1" />
+                            Pay
+                          </Button>
+                          <Button
+                            variant="outline"
+                            className="flex-1 h-11"
+                            onClick={() => void handleInvoiceDownload(invRow.order, group.shop)}
+                          >
+                            <FileText className="h-4 w-4 mr-1" />
+                            Invoice
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="hidden md:block rounded-md border overflow-x-auto">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -446,7 +505,7 @@ export function PaymentsView({ inv }: Props) {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label>Amount</Label>
                 <Input

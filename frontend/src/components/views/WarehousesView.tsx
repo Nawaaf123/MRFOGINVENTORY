@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PageHeader } from '@/components/layout/PageShell'
 import { toast } from 'sonner'
 import type { Warehouse } from '@/types/inventory'
 
@@ -47,11 +48,11 @@ export function WarehousesView({ inv }: Props) {
     }
   }
 
-  if (loading) return <div className="p-6 text-muted-foreground">Loading...</div>
+  if (loading) return <div className="py-4 pr-4 pl-16 sm:py-6 sm:pr-6 lg:pl-6 text-muted-foreground">Loading...</div>
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-6 border-b bg-background sticky top-0 z-10">
+    <div className="flex flex-col h-full min-h-0">
+      <PageHeader>
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold">Warehouses</h1>
@@ -60,9 +61,9 @@ export function WarehousesView({ inv }: Props) {
             </p>
           </div>
         </div>
-      </div>
+      </PageHeader>
 
-      <div className="flex-1 overflow-auto p-6 space-y-3">
+      <div className="flex-1 overflow-auto min-h-0 p-4 sm:p-6 space-y-3">
         {sorted.map((w) => {
           const total = getWarehouseTotal(w.id)
           const itemCount = allItems.filter((i) =>
@@ -71,7 +72,7 @@ export function WarehousesView({ inv }: Props) {
 
           return (
             <Card key={w.id}>
-              <CardContent className="p-4 flex items-center gap-4">
+              <CardContent className="p-4 flex items-center gap-3 sm:gap-4 flex-wrap sm:flex-nowrap">
                 <div
                   className="h-4 w-4 rounded-full shrink-0"
                   style={{ backgroundColor: w.color || '#c41e2a' }}
@@ -84,7 +85,7 @@ export function WarehousesView({ inv }: Props) {
                   <p className="font-bold text-lg">{total}</p>
                   <p className="text-xs text-muted-foreground">{itemCount} SKUs in stock</p>
                 </div>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => handleEdit(w)}>
+                <Button variant="ghost" size="sm" className="h-11 w-11 sm:h-8 sm:w-8 p-0" onClick={() => handleEdit(w)}>
                   <Pencil className="h-3.5 w-3.5" />
                 </Button>
               </CardContent>

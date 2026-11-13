@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PageHeader } from '@/components/layout/PageShell'
 import { formatCurrency } from '@/lib/utils'
 
 type Inv = ReturnType<typeof useInventory>
@@ -83,31 +84,31 @@ export function ReportsView({ inv }: Props) {
   const totalRevenue = filtered.reduce((s, o) => s + orderRevenue(o), 0)
   const totalOrders = filtered.length
 
-  if (pageLoading) return <div className="p-6 text-muted-foreground">Loading...</div>
+  if (pageLoading) return <div className="py-4 pr-4 pl-16 sm:py-6 sm:pr-6 lg:pl-6 text-muted-foreground">Loading...</div>
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-6 border-b bg-background sticky top-0 z-10">
+    <div className="flex flex-col h-full min-h-0">
+      <PageHeader>
         <h1 className="text-2xl font-bold">Reports</h1>
-        <div className="flex flex-wrap gap-4 mt-3">
-          <div>
+        <div className="flex flex-col sm:flex-row flex-wrap gap-3 sm:gap-4 mt-3">
+          <div className="flex-1 sm:flex-none min-w-0">
             <Label className="text-xs">From</Label>
-            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-8 w-40" />
+            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-11 sm:h-8 w-full sm:w-40" />
           </div>
-          <div>
+          <div className="flex-1 sm:flex-none min-w-0">
             <Label className="text-xs">To</Label>
-            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-8 w-40" />
+            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-11 sm:h-8 w-full sm:w-40" />
           </div>
           <div className="flex items-end gap-2">
-            <Button size="sm" variant="outline" onClick={() => setStartDate(format(subDays(new Date(), 7), 'yyyy-MM-dd'))}>7D</Button>
-            <Button size="sm" variant="outline" onClick={() => setStartDate(format(subDays(new Date(), 30), 'yyyy-MM-dd'))}>30D</Button>
-            <Button size="sm" variant="outline" onClick={() => setStartDate(format(subDays(new Date(), 90), 'yyyy-MM-dd'))}>90D</Button>
+            <Button variant="outline" className="h-11 sm:h-8 flex-1 sm:flex-none" onClick={() => setStartDate(format(subDays(new Date(), 7), 'yyyy-MM-dd'))}>7D</Button>
+            <Button variant="outline" className="h-11 sm:h-8 flex-1 sm:flex-none" onClick={() => setStartDate(format(subDays(new Date(), 30), 'yyyy-MM-dd'))}>30D</Button>
+            <Button variant="outline" className="h-11 sm:h-8 flex-1 sm:flex-none" onClick={() => setStartDate(format(subDays(new Date(), 90), 'yyyy-MM-dd'))}>90D</Button>
           </div>
         </div>
-      </div>
+      </PageHeader>
 
-      <div className="flex-1 overflow-auto p-6 space-y-6">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="flex-1 overflow-auto min-h-0 p-4 sm:p-6 space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
           <Card>
             <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Revenue</CardTitle></CardHeader>
             <CardContent><p className="text-2xl font-bold">{formatCurrency(totalRevenue)}</p></CardContent>
@@ -128,32 +129,36 @@ export function ReportsView({ inv }: Props) {
 
         <Card>
           <CardHeader><CardTitle>Daily Sales</CardTitle></CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={dailySales}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-                <Tooltip formatter={(v) => formatCurrency(Number(v ?? 0))} />
-                <Legend />
-                <Line type="monotone" dataKey="sales" stroke="hsl(172,66%,40%)" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
+          <CardContent className="overflow-x-auto">
+            <div className="min-w-[280px]">
+              <ResponsiveContainer width="100%" height={250}>
+                <LineChart data={dailySales}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} width={40} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip formatter={(v) => formatCurrency(Number(v ?? 0))} />
+                  <Legend />
+                  <Line type="monotone" dataKey="sales" stroke="hsl(355,78%,46%)" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader><CardTitle>Top Shops</CardTitle></CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={shopSales} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-                <YAxis dataKey="shop" type="category" tick={{ fontSize: 11 }} width={80} />
-                <Tooltip formatter={(v) => formatCurrency(Number(v ?? 0))} />
-                <Bar dataKey="sales" fill="hsl(172,66%,40%)" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+          <CardContent className="overflow-x-auto">
+            <div className="min-w-[280px]">
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={shopSales} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                  <YAxis dataKey="shop" type="category" tick={{ fontSize: 11 }} width={72} />
+                  <Tooltip formatter={(v) => formatCurrency(Number(v ?? 0))} />
+                  <Bar dataKey="sales" fill="hsl(355,78%,46%)" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </CardContent>
         </Card>
       </div>

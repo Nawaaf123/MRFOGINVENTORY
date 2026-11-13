@@ -10,7 +10,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { ProductPicker, type PickedProductLine } from '@/components/ProductPicker'
-import { getTotalQuantity } from '@/lib/utils'
+import { PageHeader, TableScroll, mobileActionClass } from '@/components/layout/PageShell'
+import { cn, getTotalQuantity } from '@/lib/utils'
 import { downloadInventorySheet } from '@/lib/inventorySheet'
 import { toast } from 'sonner'
 import type { InventoryItem, Warehouse } from '@/types/inventory'
@@ -293,7 +294,7 @@ export function InventoryView({ inv }: Props) {
 
   if (loading) {
     return (
-      <div className="p-6 space-y-4">
+      <div className="p-4 pl-16 lg:pl-6 sm:p-6 space-y-4">
         {Array.from({ length: 5 }).map((_, i) => (
           <Skeleton key={i} className="h-16 w-full" />
         ))}
@@ -302,27 +303,27 @@ export function InventoryView({ inv }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-6 border-b bg-background sticky top-0 z-10">
-        <div className="flex items-center justify-between mb-4">
+    <div className="flex flex-col h-full min-h-0">
+      <PageHeader className="space-y-4">
+        <div className="flex items-start sm:items-center justify-between gap-3 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold">Inventory</h1>
             <p className="text-muted-foreground text-sm">{items.length} items</p>
           </div>
-          <div className="flex gap-2 flex-wrap justify-end">
-            <Button variant="outline" size="sm" onClick={handleDownload}>
+          <div className="flex gap-2 flex-wrap justify-end w-full sm:w-auto">
+            <Button variant="outline" className={mobileActionClass} onClick={handleDownload}>
               <Download className="h-4 w-4 mr-1" />
               PDF
             </Button>
-            <Button variant="outline" size="sm" onClick={openTransfer}>
+            <Button variant="outline" className={mobileActionClass} onClick={openTransfer}>
               <ArrowLeftRight className="h-4 w-4 mr-1" />
-              Transfer Stock
+              Transfer
             </Button>
-            <Button variant="outline" size="sm" onClick={openAdjust}>
+            <Button variant="outline" className={mobileActionClass} onClick={openAdjust}>
               <SlidersHorizontal className="h-4 w-4 mr-1" />
-              Adjust Stock
+              Adjust
             </Button>
-            <Button size="sm" onClick={openCreate}>
+            <Button className={mobileActionClass} onClick={openCreate}>
               <Plus className="h-4 w-4 mr-1" />
               Add Item
             </Button>
@@ -377,10 +378,11 @@ export function InventoryView({ inv }: Props) {
             </SelectContent>
           </Select>
         </div>
-      </div>
+      </PageHeader>
 
       {/* Desktop table */}
-      <div className="hidden md:block flex-1 overflow-auto">
+      <div className="hidden md:block flex-1 overflow-auto min-h-0">
+        <TableScroll>
         <Table>
           <TableHeader>
             <TableRow>
@@ -465,10 +467,11 @@ export function InventoryView({ inv }: Props) {
             })}
           </TableBody>
         </Table>
+        </TableScroll>
       </div>
 
       {/* Mobile cards */}
-      <div className="md:hidden flex-1 overflow-auto p-4 space-y-3">
+      <div className="md:hidden flex-1 overflow-auto min-h-0 p-4 space-y-3">
         {items.length === 0 && (
           <div className="text-center py-12 text-muted-foreground">No items found</div>
         )}
@@ -481,7 +484,7 @@ export function InventoryView({ inv }: Props) {
             <Card key={item.id}>
               <CardContent className="p-4">
                 <div className="flex justify-between items-start mb-2">
-                  <div>
+                  <div className="min-w-0 pr-2">
                     <p className="font-semibold">{item.name}</p>
                     <p className="text-xs text-muted-foreground font-mono">{item.sku}</p>
                     {(item.category || item.subCategory) && (
@@ -490,7 +493,7 @@ export function InventoryView({ inv }: Props) {
                       </p>
                     )}
                   </div>
-                  <span className={low ? 'text-destructive font-bold' : 'font-bold'}>{total}</span>
+                  <span className={cn('shrink-0', low ? 'text-destructive font-bold' : 'font-bold')}>{total}</span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 mt-3">
                   {visibleWarehouses.map((w) => {
@@ -504,8 +507,8 @@ export function InventoryView({ inv }: Props) {
                   })}
                 </div>
                 <div className="mt-3 flex justify-end gap-2">
-                  <Button variant="ghost" size="sm" onClick={() => openEdit(item)}>Edit</Button>
-                  <Button variant="ghost" size="sm" className="text-destructive" onClick={() => handleDelete(item)}>
+                  <Button variant="ghost" className="h-11 sm:h-8" onClick={() => openEdit(item)}>Edit</Button>
+                  <Button variant="ghost" className="h-11 sm:h-8 text-destructive" onClick={() => handleDelete(item)}>
                     Delete
                   </Button>
                 </div>
@@ -529,7 +532,7 @@ export function InventoryView({ inv }: Props) {
               <Label>SKU</Label>
               <Input value={form.sku} onChange={(e) => setForm((p) => ({ ...p, sku: e.target.value }))} className="mt-1" />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label>Category</Label>
                 <Input value={form.category} onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))} className="mt-1" list="inv-categories" />
@@ -549,7 +552,7 @@ export function InventoryView({ inv }: Props) {
                 </datalist>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label>Price</Label>
                 <Input type="number" min="0" step="0.01" value={form.price} onChange={(e) => setForm((p) => ({ ...p, price: e.target.value }))} className="mt-1" />
@@ -560,7 +563,7 @@ export function InventoryView({ inv }: Props) {
               </div>
             </div>
             {!editing && (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label>Opening warehouse</Label>
                   <Select value={form.warehouseId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseId: v }))}>
@@ -589,7 +592,7 @@ export function InventoryView({ inv }: Props) {
       </Dialog>
 
       <Dialog open={adjustOpen} onOpenChange={setAdjustOpen}>
-        <DialogContent className="max-w-xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-xl max-h-[90dvh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>Adjust Stock</DialogTitle>
           </DialogHeader>
@@ -633,7 +636,7 @@ export function InventoryView({ inv }: Props) {
       </Dialog>
 
       <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
-        <DialogContent className="max-w-xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-xl max-h-[90dvh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>Transfer Stock</DialogTitle>
           </DialogHeader>
@@ -641,7 +644,7 @@ export function InventoryView({ inv }: Props) {
             <p className="text-sm text-muted-foreground">
               Move products from one warehouse to another. Available qty is based on the source warehouse.
             </p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label>From warehouse</Label>
                 <Select

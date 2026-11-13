@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { PageHeader, TableScroll } from '@/components/layout/PageShell'
 import { toast } from 'sonner'
 
 type Inv = ReturnType<typeof useInventory>
@@ -81,8 +82,8 @@ export function DriftMonitorView({ inv }: Props) {
   }, [rows])
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-6 border-b bg-background sticky top-0 z-10 space-y-3">
+    <div className="flex flex-col h-full min-h-0">
+      <PageHeader className="space-y-3">
         <div>
           <h1 className="text-2xl font-bold">Drift Monitor</h1>
           <p className="text-muted-foreground text-sm mt-1">
@@ -120,13 +121,13 @@ export function DriftMonitorView({ inv }: Props) {
             </SelectContent>
           </Select>
         </div>
-      </div>
+      </PageHeader>
 
-      <div className="flex-1 overflow-auto p-6 space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+      <div className="flex-1 overflow-auto min-h-0 p-4 sm:p-6 space-y-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4">
           <Card>
             <CardContent className="p-4 flex items-center gap-3">
-              <AlertTriangle className="h-8 w-8 text-destructive" />
+              <AlertTriangle className="h-8 w-8 text-destructive shrink-0" />
               <div>
                 <p className="text-2xl font-bold">{driftCount}</p>
                 <p className="text-sm text-muted-foreground">Items with drift</p>
@@ -135,7 +136,7 @@ export function DriftMonitorView({ inv }: Props) {
           </Card>
           <Card>
             <CardContent className="p-4 flex items-center gap-3">
-              <CheckCircle className="h-8 w-8 text-green-600" />
+              <CheckCircle className="h-8 w-8 text-green-600 shrink-0" />
               <div>
                 <p className="text-2xl font-bold">{grouped.length}</p>
                 <p className="text-sm text-muted-foreground">Items shown</p>
@@ -149,39 +150,81 @@ export function DriftMonitorView({ inv }: Props) {
         ) : grouped.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">No drift found</div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Item</TableHead>
-                <TableHead>Warehouse</TableHead>
-                <TableHead className="text-right">Stock</TableHead>
-                <TableHead className="text-right">Tx sum</TableHead>
-                <TableHead className="text-right">Drift</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+          <>
+            {/* Mobile cards */}
+            <div className="md:hidden space-y-3">
               {grouped.map(([itemId, g]) =>
                 g.results.map((r) => (
-                  <TableRow key={`${itemId}-${r.warehouseId}`}>
-                    <TableCell>
-                      <p className="font-medium text-sm">{g.itemName}</p>
-                      <p className="text-xs text-muted-foreground">{g.itemSku}</p>
-                    </TableCell>
-                    <TableCell>{r.warehouseName}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.currentStock}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.txSum}</TableCell>
-                    <TableCell className="text-right">
-                      {r.drift === 0 ? (
-                        <Badge variant="secondary">0</Badge>
-                      ) : (
-                        <Badge variant="destructive">{r.drift > 0 ? `+${r.drift}` : r.drift}</Badge>
-                      )}
-                    </TableCell>
-                  </TableRow>
+                  <Card key={`${itemId}-${r.warehouseId}`}>
+                    <CardContent className="p-4 space-y-2">
+                      <div>
+                        <p className="font-semibold">{g.itemName}</p>
+                        <p className="text-xs font-mono text-muted-foreground">{g.itemSku}</p>
+                      </div>
+                      <p className="text-sm text-muted-foreground">{r.warehouseName}</p>
+                      <div className="grid grid-cols-3 gap-2 text-sm">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Stock</p>
+                          <p className="font-medium tabular-nums">{r.currentStock}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Tx sum</p>
+                          <p className="font-medium tabular-nums">{r.txSum}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Drift</p>
+                          {r.drift === 0 ? (
+                            <Badge variant="secondary">0</Badge>
+                          ) : (
+                            <Badge variant="destructive">{r.drift > 0 ? `+${r.drift}` : r.drift}</Badge>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
                 ))
               )}
-            </TableBody>
-          </Table>
+            </div>
+
+            {/* Desktop table */}
+            <div className="hidden md:block">
+              <TableScroll>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Item</TableHead>
+                      <TableHead>Warehouse</TableHead>
+                      <TableHead className="text-right">Stock</TableHead>
+                      <TableHead className="text-right">Tx sum</TableHead>
+                      <TableHead className="text-right">Drift</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {grouped.map(([itemId, g]) =>
+                      g.results.map((r) => (
+                        <TableRow key={`${itemId}-${r.warehouseId}`}>
+                          <TableCell>
+                            <p className="font-medium text-sm">{g.itemName}</p>
+                            <p className="text-xs text-muted-foreground">{g.itemSku}</p>
+                          </TableCell>
+                          <TableCell>{r.warehouseName}</TableCell>
+                          <TableCell className="text-right tabular-nums">{r.currentStock}</TableCell>
+                          <TableCell className="text-right tabular-nums">{r.txSum}</TableCell>
+                          <TableCell className="text-right">
+                            {r.drift === 0 ? (
+                              <Badge variant="secondary">0</Badge>
+                            ) : (
+                              <Badge variant="destructive">{r.drift > 0 ? `+${r.drift}` : r.drift}</Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </TableScroll>
+            </div>
+          </>
         )}
       </div>
     </div>

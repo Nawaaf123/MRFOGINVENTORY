@@ -3,9 +3,11 @@ import { format, subDays } from 'date-fns'
 import { Download, Search } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { PageHeader, TableScroll, mobileActionClass } from '@/components/layout/PageShell'
 import { formatCurrency } from '@/lib/utils'
 import { toast } from 'sonner'
 
@@ -92,14 +94,14 @@ export function PaymentHistoryView({ inv }: Props) {
     }
   }
 
-  if (pageLoading) return <div className="p-6 text-muted-foreground">Loading...</div>
+  if (pageLoading) return <div className="py-4 pr-4 pl-16 sm:py-6 sm:pr-6 lg:pl-6 text-muted-foreground">Loading...</div>
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-6 border-b bg-background sticky top-0 z-10 space-y-3">
-        <div className="flex items-center justify-between">
+    <div className="flex flex-col h-full min-h-0">
+      <PageHeader className="space-y-3">
+        <div className="flex items-start sm:items-center justify-between gap-3 flex-wrap">
           <h1 className="text-2xl font-bold">Payment History</h1>
-          <Button variant="outline" size="sm" onClick={handleExport}>
+          <Button variant="outline" className={mobileActionClass} onClick={handleExport}>
             <Download className="h-4 w-4 mr-1" />Export
           </Button>
         </div>
@@ -138,38 +140,66 @@ export function PaymentHistoryView({ inv }: Props) {
             </SelectContent>
           </Select>
         </div>
-      </div>
+      </PageHeader>
 
-      <div className="flex-1 overflow-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Date</TableHead>
-              <TableHead>Shop</TableHead>
-              <TableHead>Amount</TableHead>
-              <TableHead>Method</TableHead>
-              <TableHead>Note</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
-                  {payments.length ? 'No payments match these filters' : 'No payments found'}
-                </TableCell>
-              </TableRow>
-            )}
-            {filtered.map((p) => (
-              <TableRow key={p.id}>
-                <TableCell>{format(new Date(p.paymentDate), 'MMM d, yyyy')}</TableCell>
-                <TableCell className="font-medium">{p.shopName}</TableCell>
-                <TableCell className="font-semibold text-green-600">{formatCurrency(p.amount)}</TableCell>
-                <TableCell>{p.method}</TableCell>
-                <TableCell className="text-muted-foreground">{p.note}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+      <div className="flex-1 overflow-auto min-h-0">
+        {/* Mobile cards */}
+        <div className="md:hidden p-4 space-y-3">
+          {filtered.length === 0 && (
+            <div className="text-center py-12 text-muted-foreground">
+              {payments.length ? 'No payments match these filters' : 'No payments found'}
+            </div>
+          )}
+          {filtered.map((p) => (
+            <Card key={p.id}>
+              <CardContent className="p-4 space-y-1">
+                <div className="flex justify-between gap-2">
+                  <p className="font-semibold">{p.shopName}</p>
+                  <p className="font-semibold text-green-600 tabular-nums">{formatCurrency(p.amount)}</p>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {format(new Date(p.paymentDate), 'MMM d, yyyy')} · {p.method}
+                </p>
+                {p.note && <p className="text-sm text-muted-foreground">{p.note}</p>}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {/* Desktop table */}
+        <div className="hidden md:block">
+          <TableScroll>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Shop</TableHead>
+                  <TableHead>Amount</TableHead>
+                  <TableHead>Method</TableHead>
+                  <TableHead>Note</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
+                      {payments.length ? 'No payments match these filters' : 'No payments found'}
+                    </TableCell>
+                  </TableRow>
+                )}
+                {filtered.map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell>{format(new Date(p.paymentDate), 'MMM d, yyyy')}</TableCell>
+                    <TableCell className="font-medium">{p.shopName}</TableCell>
+                    <TableCell className="font-semibold text-green-600">{formatCurrency(p.amount)}</TableCell>
+                    <TableCell>{p.method}</TableCell>
+                    <TableCell className="text-muted-foreground">{p.note}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableScroll>
+        </div>
       </div>
     </div>
   )

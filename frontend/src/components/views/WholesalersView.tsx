@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import { PageHeader, mobileActionClass } from '@/components/layout/PageShell'
 import { toast } from 'sonner'
 import type { Wholesaler } from '@/types/inventory'
 
@@ -68,14 +69,14 @@ export function WholesalersView({ inv }: Props) {
     }
   }
 
-  if (loading) return <div className="p-6 text-muted-foreground">Loading...</div>
+  if (loading) return <div className="py-4 pr-4 pl-16 sm:py-6 sm:pr-6 lg:pl-6 text-muted-foreground">Loading...</div>
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-6 border-b bg-background sticky top-0 z-10">
-        <div className="flex items-center justify-between mb-4">
+    <div className="flex flex-col h-full min-h-0">
+      <PageHeader>
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
           <h1 className="text-2xl font-bold">Wholesalers</h1>
-          <Button size="sm" onClick={() => handleOpen()}>
+          <Button className={mobileActionClass} onClick={() => handleOpen()}>
             <Plus className="h-4 w-4 mr-1" />Add
           </Button>
         </div>
@@ -88,19 +89,19 @@ export function WholesalersView({ inv }: Props) {
             className="pl-9"
           />
         </div>
-      </div>
+      </PageHeader>
 
-      <div className="flex-1 overflow-auto p-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-4 content-start">
+      <div className="flex-1 overflow-auto min-h-0 p-4 sm:p-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-4 content-start">
         {filtered.map((w) => (
           <Card key={w.id}>
             <CardContent className="p-4">
-              <div className="flex justify-between items-start mb-2">
-                <p className="font-semibold">{w.name}</p>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleOpen(w)}>
+              <div className="flex justify-between items-start mb-2 gap-2">
+                <p className="font-semibold min-w-0">{w.name}</p>
+                <div className="flex gap-1 shrink-0">
+                  <Button variant="ghost" size="sm" className="h-11 w-11 sm:h-7 sm:w-7 p-0" onClick={() => handleOpen(w)}>
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
-                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => handleDelete(w)}>
+                  <Button variant="ghost" size="sm" className="h-11 w-11 sm:h-7 sm:w-7 p-0 text-destructive" onClick={() => handleDelete(w)}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </div>

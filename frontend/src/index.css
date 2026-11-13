@@ -70,8 +70,27 @@
   * {
     @apply border-border;
   }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
+    /* Avoid iOS rubber-band scroll fighting the app shell */
+    overscroll-behavior: none;
+  }
+}
+
+@layer utilities {
+  .page-header {
+    @apply border-b bg-background sticky top-0 z-10 py-4 pr-4 pl-16 sm:py-6 sm:pr-6 lg:pl-6;
+  }
+  .page-body {
+    @apply flex-1 overflow-auto p-4 sm:p-6;
+  }
+  .table-scroll {
+    @apply w-full overflow-x-auto;
   }
 }
