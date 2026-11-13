@@ -86,9 +86,9 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
     }
   }, [mobileOpen])
 
-  const SidebarContent = () => (
+  const sidebarInner = (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
-      <div className="flex items-center gap-3 px-6 py-5 border-b border-sidebar-border">
+      <div className="flex items-center gap-3 px-6 py-5 border-b border-sidebar-border pr-14">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm">
           MF
         </div>
@@ -98,7 +98,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto py-4 px-3" aria-label="Main">
+      <nav className="flex-1 overflow-y-auto overscroll-contain py-4 px-3" aria-label="Main">
         {navItems.map((item) => {
           const Icon = item.icon
           const active = activeView === item.id
@@ -142,25 +142,25 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
     <>
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex w-64 shrink-0 h-dvh sticky top-0 z-30">
-        <SidebarContent />
+        {sidebarInner}
       </aside>
 
-      {/* Mobile hamburger button */}
+      {/* Mobile menu toggle — always above overlay/drawer */}
       <button
         type="button"
-        aria-label="Open navigation menu"
+        aria-label={mobileOpen ? 'Close navigation menu' : 'Open navigation menu'}
         aria-expanded={mobileOpen}
         aria-controls="mobile-nav-drawer"
-        className="lg:hidden fixed top-[max(1rem,env(safe-area-inset-top))] left-[max(1rem,env(safe-area-inset-left))] z-[60] flex h-11 w-11 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-md"
-        onClick={() => setMobileOpen(true)}
+        className="lg:hidden fixed top-[max(1rem,env(safe-area-inset-top))] left-[max(1rem,env(safe-area-inset-left))] z-[80] flex h-11 w-11 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-md touch-manipulation"
+        onClick={() => setMobileOpen((open) => !open)}
       >
-        <Menu className="h-5 w-5" />
+        {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
       </button>
 
       {/* Mobile overlay */}
       {mobileOpen && (
         <div
-          className="lg:hidden fixed inset-0 z-[55] bg-black/60"
+          className="lg:hidden fixed inset-0 z-[70] bg-black/60"
           aria-hidden="true"
           onClick={() => setMobileOpen(false)}
         />
@@ -173,19 +173,11 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
         aria-modal="true"
         aria-label="Navigation"
         className={cn(
-          'lg:hidden fixed inset-y-0 left-0 z-[60] w-[min(18rem,85vw)] transform transition-transform duration-300 shadow-xl',
+          'lg:hidden fixed inset-y-0 left-0 z-[75] w-[min(18rem,85vw)] transform transition-transform duration-300 shadow-xl',
           mobileOpen ? 'translate-x-0' : '-translate-x-full pointer-events-none'
         )}
       >
-        <button
-          type="button"
-          aria-label="Close navigation menu"
-          className="absolute top-4 right-4 z-10 flex h-11 w-11 items-center justify-center rounded-md text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
-          onClick={() => setMobileOpen(false)}
-        >
-          <X className="h-5 w-5" />
-        </button>
-        <SidebarContent />
+        {sidebarInner}
       </aside>
     </>
   )
