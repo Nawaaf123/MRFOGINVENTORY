@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Package,
   ShoppingCart,
@@ -138,47 +139,55 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
     </div>
   )
 
+  const mobileUi =
+    typeof document !== 'undefined'
+      ? createPortal(
+          <>
+            <button
+              type="button"
+              data-mobile-nav-toggle="true"
+              aria-label={mobileOpen ? 'Close navigation menu' : 'Open navigation menu'}
+              aria-expanded={mobileOpen}
+              aria-controls="mobile-nav-drawer"
+              className="lg:hidden fixed top-[max(1rem,env(safe-area-inset-top))] left-[max(1rem,env(safe-area-inset-left))] z-[100] flex h-11 w-11 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-md touch-manipulation"
+              onClick={() => setMobileOpen((open) => !open)}
+            >
+              {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+
+            {mobileOpen && (
+              <div
+                className="lg:hidden fixed inset-0 z-[90] bg-black/60"
+                aria-hidden="true"
+                onClick={() => setMobileOpen(false)}
+              />
+            )}
+
+            <aside
+              id="mobile-nav-drawer"
+              role="dialog"
+              aria-modal={mobileOpen}
+              aria-label="Navigation"
+              aria-hidden={!mobileOpen}
+              className={cn(
+                'lg:hidden fixed inset-y-0 left-0 z-[95] w-[min(18rem,85vw)] bg-sidebar shadow-xl transition-transform duration-300 ease-out',
+                mobileOpen ? 'translate-x-0' : '-translate-x-full pointer-events-none'
+              )}
+            >
+              {sidebarInner}
+            </aside>
+          </>,
+          document.body
+        )
+      : null
+
   return (
     <>
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex w-64 shrink-0 h-dvh sticky top-0 z-30">
         {sidebarInner}
       </aside>
-
-      {/* Mobile menu toggle — always above overlay/drawer */}
-      <button
-        type="button"
-        aria-label={mobileOpen ? 'Close navigation menu' : 'Open navigation menu'}
-        aria-expanded={mobileOpen}
-        aria-controls="mobile-nav-drawer"
-        className="lg:hidden fixed top-[max(1rem,env(safe-area-inset-top))] left-[max(1rem,env(safe-area-inset-left))] z-[80] flex h-11 w-11 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-md touch-manipulation"
-        onClick={() => setMobileOpen((open) => !open)}
-      >
-        {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-      </button>
-
-      {/* Mobile overlay */}
-      {mobileOpen && (
-        <div
-          className="lg:hidden fixed inset-0 z-[70] bg-black/60"
-          aria-hidden="true"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
-
-      {/* Mobile drawer */}
-      <aside
-        id="mobile-nav-drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Navigation"
-        className={cn(
-          'lg:hidden fixed inset-y-0 left-0 z-[75] w-[min(18rem,85vw)] transform transition-transform duration-300 shadow-xl',
-          mobileOpen ? 'translate-x-0' : '-translate-x-full pointer-events-none'
-        )}
-      >
-        {sidebarInner}
-      </aside>
+      {mobileUi}
     </>
   )
 }
