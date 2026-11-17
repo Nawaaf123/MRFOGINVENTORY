@@ -130,6 +130,34 @@ export function useInventory() {
     return { items: mapped, total: page.total ?? mapped.length, limit: page.limit, offset: page.offset }
   }, [])
 
+  /** Fetch every matching order page (API max 500/page) so Payments can show full invoice history. */
+  const loadAllOrders = useCallback(async (query: OrdersQuery = {}) => {
+    const pageSize = Math.min(query.limit ?? 500, 500)
+    let offset = 0
+    let total = Infinity
+    const all: Order[] = []
+    while (offset < total) {
+      const qs = buildQuery({
+        limit: pageSize,
+        offset,
+        q: query.q || undefined,
+        days: query.days ?? undefined,
+        include_cancelled: query.includeCancelled ? true : undefined,
+        include_items: query.includeItems ? true : undefined,
+        shop: query.shop || undefined,
+      })
+      const page = await apiGet<PageResult<Record<string, unknown>>>(`/api/orders${qs}`)
+      const mapped = (page.items ?? []).map(mapOrder)
+      all.push(...mapped)
+      total = page.total ?? all.length
+      offset += mapped.length
+      if (mapped.length === 0) break
+    }
+    setOrders(all)
+    setOrdersTotal(Number.isFinite(total) ? total : all.length)
+    return { items: all, total: Number.isFinite(total) ? total : all.length }
+  }, [])
+
   const loadMoreOrders = useCallback(async (query: OrdersQuery = {}) => {
     const qs = buildQuery({
       limit: query.limit ?? 50,
@@ -495,6 +523,7 @@ export function useInventory() {
     refresh: fetchCatalog,
     refreshStock,
     loadOrders,
+    loadAllOrders,
     loadMoreOrders,
     getOrder,
     loadTransactions,
