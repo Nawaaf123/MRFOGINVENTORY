@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { format, subDays } from 'date-fns'
-import { ChevronDown, ChevronRight, Store, DollarSign, FileText, Search } from 'lucide-react'
+import { ChevronDown, ChevronRight, ChevronLeft, Store, DollarSign, FileText, Search } from 'lucide-react'
 import type { useInventory } from '@/hooks/useInventory'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -21,6 +21,8 @@ interface Props { inv: Inv }
 
 type DateFilter = 'all' | '7' | '30' | '90'
 type StatusFilter = 'all' | 'open' | 'paid'
+
+const SHOPS_PER_PAGE = 10
 
 function getOrderTotal(order: Order): number {
   const subtotal =
@@ -56,11 +58,12 @@ type ShopGroup = {
 }
 
 export function PaymentsView({ inv }: Props) {
-  const { orders, payments, wholesalers, addPayment, loadOrders, loadPayments, getOrder } = inv
+  const { orders, payments, wholesalers, addPayment, loadAllOrders, loadPayments, getOrder } = inv
   const [expanded, setExpanded] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [dateFilter, setDateFilter] = useState<DateFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [shopPage, setShopPage] = useState(0)
   const [payOpen, setPayOpen] = useState(false)
   const [payShop, setPayShop] = useState<string | null>(null)
   const [payOrderId, setPayOrderId] = useState<string>('')
@@ -76,8 +79,7 @@ export function PaymentsView({ inv }: Props) {
       setPageLoading(true)
       try {
         await Promise.all([
-          loadOrders({
-            limit: 500,
+          loadAllOrders({
             includeCancelled: false,
             includeItems: false,
             days: dateFilter === 'all' ? null : Number(dateFilter),
@@ -93,7 +95,12 @@ export function PaymentsView({ inv }: Props) {
     return () => {
       cancelled = true
     }
-  }, [loadOrders, loadPayments, dateFilter])
+  }, [loadAllOrders, loadPayments, dateFilter])
+
+  useEffect(() => {
+    setShopPage(0)
+    setExpanded(null)
+  }, [search, dateFilter, statusFilter])
 
   const groups = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -150,6 +157,13 @@ export function PaymentsView({ inv }: Props) {
       return a.shop.localeCompare(b.shop)
     })
   }, [orders, payments, search, dateFilter, statusFilter])
+
+  const totalShopPages = Math.max(1, Math.ceil(groups.length / SHOPS_PER_PAGE))
+  const safeShopPage = Math.min(shopPage, totalShopPages - 1)
+  const pageGroups = groups.slice(
+    safeShopPage * SHOPS_PER_PAGE,
+    safeShopPage * SHOPS_PER_PAGE + SHOPS_PER_PAGE
+  )
 
   const openPayForShop = (shop: string) => {
     const group = groups.find((g) => g.shop === shop)
@@ -262,7 +276,20 @@ export function PaymentsView({ inv }: Props) {
       </PageHeader>
 
       <div className="flex-1 overflow-auto min-h-0 p-4 sm:p-6 space-y-3 bg-muted/30">
-        {groups.map((group) => {
+        {groups.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+            <p>
+              {groups.length} shop{groups.length === 1 ? '' : 's'} · page {safeShopPage + 1} of{' '}
+              {totalShopPages}
+            </p>
+            <p className="tabular-nums">
+              Showing {safeShopPage * SHOPS_PER_PAGE + 1}–
+              {Math.min((safeShopPage + 1) * SHOPS_PER_PAGE, groups.length)}
+            </p>
+          </div>
+        )}
+
+        {pageGroups.map((group) => {
           const isOpen = expanded === group.shop
           return (
             <Card key={group.shop} className="overflow-hidden shadow-sm">
@@ -476,6 +503,38 @@ export function PaymentsView({ inv }: Props) {
             {orders.some((o) => o.status !== 'cancelled')
               ? 'No invoices match these filters'
               : 'No invoices yet — create orders first'}
+          </div>
+        )}
+
+        {groups.length > SHOPS_PER_PAGE && (
+          <div className="flex items-center justify-center gap-3 pt-2 pb-4">
+            <Button
+              variant="outline"
+              className="h-11 px-4"
+              disabled={safeShopPage <= 0}
+              onClick={() => {
+                setExpanded(null)
+                setShopPage((p) => Math.max(0, p - 1))
+              }}
+            >
+              <ChevronLeft className="h-4 w-4 mr-1" />
+              Previous
+            </Button>
+            <span className="text-sm text-muted-foreground tabular-nums">
+              {safeShopPage + 1} / {totalShopPages}
+            </span>
+            <Button
+              variant="outline"
+              className="h-11 px-4"
+              disabled={safeShopPage >= totalShopPages - 1}
+              onClick={() => {
+                setExpanded(null)
+                setShopPage((p) => Math.min(totalShopPages - 1, p + 1))
+              }}
+            >
+              Next
+              <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
           </div>
         )}
       </div>
